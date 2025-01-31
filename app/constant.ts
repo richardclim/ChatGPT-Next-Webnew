@@ -174,13 +174,23 @@ export const OpenaiPath = {
 };
 
 export const Azure = {
+  ChatPath: (deployName: string) =>
+    `chat/completions`,
+  // https://<your_resource_name>.openai.azure.com/openai/deployments/<your_deployment_name>/images/generations?api-version=<api_version>
+  ImagePath: (deployName: string) =>
+    `deployments/${deployName}/images/generations`,
+  ExampleEndpoint: "https://{resource-url}",
+}; 
+/* 
+export const Azure = {
   ChatPath: (deployName: string, apiVersion: string) =>
     `deployments/${deployName}/chat/completions?api-version=${apiVersion}`,
   // https://<your_resource_name>.openai.azure.com/openai/deployments/<your_deployment_name>/images/generations?api-version=<api_version>
   ImagePath: (deployName: string, apiVersion: string) =>
     `deployments/${deployName}/images/generations?api-version=${apiVersion}`,
   ExampleEndpoint: "https://{resource-url}/openai",
-};
+}; 
+*/
 
 export const Google = {
   ExampleEndpoint: "https://generativelanguage.googleapis.com/",
