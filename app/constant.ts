@@ -181,7 +181,6 @@ export const Azure = {
     }
     return `deployments/${deployName}/chat/completions?api-version=${apiVersion}`;
   },
-    ``,
   // https://<your_resource_name>.openai.azure.com/openai/deployments/<your_deployment_name>/images/generations?api-version=<api_version>
   ImagePath: (deployName: string, apiVersion: string) =>
     `deployments/${deployName}/images/generations?api-version=${apiVersion}`,
