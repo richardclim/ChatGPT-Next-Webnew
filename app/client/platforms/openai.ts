@@ -86,7 +86,7 @@ export class ChatGPTApi implements LLMApi {
 
     let baseUrl = "";
 
-    const isAzure = path.includes("deployments");
+    const isAzure = path.includes("deployments") || accessStore.azureUrl?.includes(".models.ai.azure.com");
     if (accessStore.useCustomConfig) {
       if (isAzure && !accessStore.isValidAzure()) {
         throw Error(
