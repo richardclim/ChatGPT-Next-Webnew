@@ -54,7 +54,9 @@ export async function requestOpenai(req: NextRequest) {
     const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
     if (isAIFoundation) {
     // For AI Foundation, use the path directly without api-version
-    path = req.nextUrl.pathname.replaceAll("/api/azure/", "");
+    baseUrl = serverConfig.azureUrl;
+    path = "chat/completions";
+    // path = req.nextUrl.pathname.replaceAll("/api/azure/", "");
     } else {
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
