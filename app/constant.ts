@@ -174,7 +174,13 @@ export const OpenaiPath = {
 };
 
 export const Azure = {
-  ChatPath: (deployName: string, apiVersion: string) =>
+  ChatPath: (deployName: string, apiVersion: string) => {
+    // Check if it's an AI Foundation endpoint
+    if (deployName.includes(".models.ai.azure.com")) {
+      return "chat/completions";
+    }
+    return `deployments/${deployName}/chat/completions?api-version=${apiVersion}`;
+  },
     ``,
   // https://<your_resource_name>.openai.azure.com/openai/deployments/<your_deployment_name>/images/generations?api-version=<api_version>
   ImagePath: (deployName: string, apiVersion: string) =>
