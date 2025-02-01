@@ -254,6 +254,12 @@ export class ChatGPTApi implements LLMApi {
     try {
       let chatPath = "";
       if (modelConfig.providerName === ServiceProvider.Azure) {
+        const isAIFoundation = useAccessStore.getState().azureUrl?.includes(".models.ai.azure.com");
+  
+    if (isAIFoundation) {
+      // For AI Foundation, use the URL directly as the deployment name
+      chatPath = this.path(Azure.ChatPath(useAccessStore.getState().azureUrl || "", ""));
+    } else {
         // find model, and get displayName as deployName
         const { models: configModels, customModels: configCustomModels } =
           useAppConfig.getState();
@@ -278,6 +284,7 @@ export class ChatGPTApi implements LLMApi {
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
         );
+      }
       } else {
         chatPath = this.path(
           isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
