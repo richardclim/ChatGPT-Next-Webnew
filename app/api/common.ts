@@ -49,11 +49,15 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
   );
 
   if (isAzure) {
-    const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
-    if (!isAIFoundation) {
+    // const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
+    const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
+      if (isAIFoundation) {
+    // For AI Foundation models, use direct path without deployments
+    path = "chat/completions";
+  } else {
     baseUrl = baseUrl.split("/deployments").shift() as string;
 
     // Forward compatibility:
@@ -82,7 +86,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
         path = path.replaceAll(modelName, realDeployName);
       }
       }
-    }
+      }
   }
 
   const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
