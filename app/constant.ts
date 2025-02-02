@@ -175,7 +175,7 @@ export const OpenaiPath = {
 
 export const Azure = {
   ChatPath: (deployName: string, apiVersion: string) => {
-      return `chat/completions`;
+      return `{ExampleEndpoint}/chat/completions`;
   },
   // https://<your_resource_name>.openai.azure.com/openai/deployments/<your_deployment_name>/images/generations?api-version=<api_version>
   ImagePath: (deployName: string, apiVersion: string) =>
