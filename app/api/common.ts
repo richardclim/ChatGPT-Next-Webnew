@@ -56,9 +56,19 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
     const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
       if (isAIFoundation) {
     // For AI Foundation models, use direct path without deployments
-    path = "chat/completions";
+    // failed to work. path = "chat/completions";
+      path = req.nextUrl.pathname
+        .replace("/api/azure/openai/", "")
+        .replace("/deployments/", "")
+        .split("/")
+        .slice(-2)
+        .join("/");
   } else {
     baseUrl = baseUrl.split("/deployments").shift() as string;
+    path = `${req.nextUrl.pathname.replaceAll(
+      "/api/azure/",
+      "",
+    )}?api-version=${azureApiVersion}`;
 
     // Forward compatibility:
     // if display_name(deployment_name) not set, and '{deploy-id}' in AZURE_URL
