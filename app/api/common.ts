@@ -31,16 +31,6 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
 console.log("[Auth Header Name]", authHeaderName);
 console.log("[Auth Value Present]", !!authValue);
 
-const fetchOptions: RequestInit = {
-  headers: {
-    "Content-Type": "application/json",
-    "Cache-Control": "no-store",
-    [authHeaderName]: authValue,  // Make sure this is being set
-    ...(serverConfig.openaiOrgId && {
-      "OpenAI-Organization": serverConfig.openaiOrgId,
-    }),
-  },
-  
   let path = `${req.nextUrl.pathname}`.replaceAll("/api/openai/", "");
   let baseUrl =
     (isAzure ? serverConfig.azureUrl : serverConfig.baseUrl) || OPENAI_BASE_URL;
@@ -135,7 +125,7 @@ const fetchOptions: RequestInit = {
     duplex: "half",
     signal: controller.signal,
   };
-
+console.log("[Request Headers]", fetchOptions.headers);
   // #1815 try to refuse gpt4 request
   if (serverConfig.customModels && req.body) {
     try {
@@ -212,4 +202,3 @@ const fetchOptions: RequestInit = {
     clearTimeout(timeoutId);
   }
 }
-console.log("[Request Headers]", fetchOptions.headers);
