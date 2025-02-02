@@ -26,7 +26,21 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
     authValue = req.headers.get("Authorization") ?? "";
     authHeaderName = "Authorization";
   }
+  
+// Add debug logs
+console.log("[Auth Header Name]", authHeaderName);
+console.log("[Auth Value Present]", !!authValue);
 
+const fetchOptions: RequestInit = {
+  headers: {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    [authHeaderName]: authValue,  // Make sure this is being set
+    ...(serverConfig.openaiOrgId && {
+      "OpenAI-Organization": serverConfig.openaiOrgId,
+    }),
+  },
+  
   let path = `${req.nextUrl.pathname}`.replaceAll("/api/openai/", "");
   let baseUrl =
     (isAzure ? serverConfig.azureUrl : serverConfig.baseUrl) || OPENAI_BASE_URL;
@@ -198,3 +212,4 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
     clearTimeout(timeoutId);
   }
 }
+console.log("[Request Headers]", fetchOptions.headers);
