@@ -55,10 +55,6 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
     baseUrl = baseUrl.split("/deployments").shift() as string;
-    path = `${req.nextUrl.pathname.replaceAll(
-      "/api/azure/",
-      "",
-    )}?api-version=${azureApiVersion}`;
 
     // Forward compatibility:
     // if display_name(deployment_name) not set, and '{deploy-id}' in AZURE_URL
@@ -89,7 +85,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
     }
   }
 
-  const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}`);
+  const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
   console.log("fetchUrl", fetchUrl);
   const fetchOptions: RequestInit = {
     headers: {
