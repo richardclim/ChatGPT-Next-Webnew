@@ -86,20 +86,22 @@ export class ChatGPTApi implements LLMApi {
 
     let baseUrl = "";
 
-    const isAzure = path.includes("deployments"); 
+    const isAzure = path.includes("deployments");
+    if (accessStore.useCustomConfig) {
       if (isAzure && !accessStore.isValidAzure()) {
         throw Error(
           "incomplete azure config, please check it in your settings page",
         );
       }
 
+      baseUrl = isAzure ? accessStore.azureUrl : accessStore.openaiUrl;
+    }
+
     if (baseUrl.length === 0) {
       const isApp = !!getClientConfig()?.isApp;
-      const apiPath = ApiPath.Azure;
-      // const apiPath = isAzure ? ApiPath.Azure : ApiPath.OpenAI;
-      // baseUrl = isApp ? OPENAI_BASE_URL : apiPath;
-      }
-    };
+      const apiPath = isAzure ? ApiPath.Azure : ApiPath.OpenAI;
+      baseUrl = isApp ? OPENAI_BASE_URL : apiPath;
+    }
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
@@ -270,15 +272,16 @@ export class ChatGPTApi implements LLMApi {
             model.name === modelConfig.model &&
             model?.provider?.providerName === ServiceProvider.Azure,
         );
-       chatPath = this.path(
+        chatPath = this.path(
           (isDalle3 ? Azure.ImagePath : Azure.ChatPath)(
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
         );
-      } 
-      if (!modelConfig.providerName === ServiceProvider.Azure) {
-      throw Error("ModelConfig is not the same as Azure);
+      } else {
+        chatPath = this.path(
+          isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
+        );
       }
       if (shouldStream) {
         let index = -1;
