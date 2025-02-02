@@ -28,10 +28,10 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
   }
 
   let path = `${req.nextUrl.pathname}`.replaceAll("/api/openai/", "");
-
-  let baseUrl =
+  let baseUrl = serverConfig.azureUrl;
+  /* let baseUrl =
     (isAzure ? serverConfig.azureUrl : serverConfig.baseUrl) || OPENAI_BASE_URL;
-
+  */
   if (!baseUrl.startsWith("http")) {
     baseUrl = `https://${baseUrl}`;
   }
