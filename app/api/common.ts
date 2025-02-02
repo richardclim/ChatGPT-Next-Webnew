@@ -52,11 +52,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
 
   if (isAzure) {
     const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
-    if (isAIFoundation && serverConfig.azureUrl) {
-    // For AI Foundation, use the path directly without api-version
-    baseUrl = serverConfig.azureUrl;
-    // path = req.nextUrl.pathname.replaceAll("/api/azure/", "");
-    } else {
+    if (!isAIFoundation) {
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
