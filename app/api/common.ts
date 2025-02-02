@@ -49,6 +49,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
   );
 
   if (isAzure) {
+    console.log("[Original Path]", req.nextUrl.pathname);  // Log initial path
     // const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
@@ -57,19 +58,21 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
       if (isAIFoundation) {
     // For AI Foundation models, use direct path without deployments
     // failed to work. path = "chat/completions";
-      path = req.nextUrl.pathname
+        path = "chat/completions";
+     /* path = req.nextUrl.pathname
         .replace("/api/azure/openai/", "")
         .replace("/deployments/", "")
         .split("/")
         .slice(-2)
         .join("/");
+      */
   } else {
     baseUrl = baseUrl.split("/deployments").shift() as string;
     path = `${req.nextUrl.pathname.replaceAll(
       "/api/azure/",
       "",
     )}?api-version=${azureApiVersion}`;
-
+    console.log("[Azure OpenAI Path]", path); 
     // Forward compatibility:
     // if display_name(deployment_name) not set, and '{deploy-id}' in AZURE_URL
     // then using default '{deploy-id}'
