@@ -260,11 +260,12 @@ export class ChatGPTApi implements LLMApi {
       let chatPath = "";
       if (modelConfig.providerName === ServiceProvider.Azure) {
         const isAIFoundation = useAccessStore.getState().azureUrl?.includes(".models.ai.azure.com");
-  
-    if (isAIFoundation) {
-      // For AI Foundation, use the URL directly as the deployment name
-      chatPath = this.path(Azure.ChatPath(useAccessStore.getState().azureUrl || "", ""));
-    } else {
+        const azureUrl = useAccessStore.getState().azureUrl;
+          if (!azureUrl) {
+            throw new Error("Azure URL is not configured");
+          }
+          const sanitizedAzureUrl = azureUrl.replace(/\/+$/, "");
+          chatPath = cloudflareAIGatewayUrl(`${sanitizedAzureUrl}/chat/completions`);
         // find model, and get displayName as deployName
         const { models: configModels, customModels: configCustomModels } =
           useAppConfig.getState();
@@ -283,13 +284,12 @@ export class ChatGPTApi implements LLMApi {
             model.name === modelConfig.model &&
             model?.provider?.providerName === ServiceProvider.Azure,
         );
-        chatPath = this.path(
+       /* chatPath = this.path(
           (isDalle3 ? Azure.ImagePath : Azure.ChatPath)(
             (model?.displayName ?? model?.name) as string,
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
-        );
-      }
+        );*/
       } else {
         chatPath = this.path(
           isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
