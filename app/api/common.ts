@@ -89,7 +89,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
     }
   }
 
-  const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
+  const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}`);
   console.log("fetchUrl", fetchUrl);
   const fetchOptions: RequestInit = {
     headers: {
