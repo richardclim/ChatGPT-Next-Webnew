@@ -99,7 +99,7 @@ export class ChatGPTApi implements LLMApi {
       // const apiPath = isAzure ? ApiPath.Azure : ApiPath.OpenAI;
       // baseUrl = isApp ? OPENAI_BASE_URL : apiPath;
       }
-    }
+    };
 
     if (baseUrl.endsWith("/")) {
       baseUrl = baseUrl.slice(0, baseUrl.length - 1);
