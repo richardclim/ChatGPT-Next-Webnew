@@ -101,8 +101,10 @@ export class ChatGPTApi implements LLMApi {
       if (isAIFoundation) {
         baseUrl = accessStore.azureUrl;
       } else {
-      const apiPath = isAzure ? ApiPath.Azure : ApiPath.OpenAI;
-      baseUrl = isApp ? OPENAI_BASE_URL : apiPath;
+      const apiPath = ApiPath.Azure;
+      baseUrl = apiPath;
+      // const apiPath = isAzure ? ApiPath.Azure : ApiPath.OpenAI;
+      // baseUrl = isApp ? OPENAI_BASE_URL : apiPath;
       }
     }
 
