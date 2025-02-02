@@ -9,7 +9,7 @@ const serverConfig = getServerSideConfig();
 export async function requestOpenai(req: NextRequest) {
   const controller = new AbortController();
 
-  const isAzure = req.nextUrl.pathname.includes("azure/deployments");
+const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(serverConfig.azureUrl && serverConfig.azureUrl.includes(".models.ai.azure.com"));
 
   var authValue,
     authHeaderName = "";
