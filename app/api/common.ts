@@ -59,6 +59,7 @@ console.log("[Auth Value Present]", !!authValue);
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
     const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
+    console.log("[Is AI Foundation]", isAIFoundation);
       if (isAIFoundation) {
     // For AI Foundation models, use direct path without deployments
     // failed to work. path = "chat/completions";
@@ -104,6 +105,7 @@ console.log("[Auth Value Present]", !!authValue);
       }
       }
       }
+        console.log("[Final Path]", path);
   }
 
   const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
