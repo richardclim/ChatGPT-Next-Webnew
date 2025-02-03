@@ -21,7 +21,7 @@ const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(se
         .replaceAll("Bearer ", "")
         .trim() ?? "";
 
-    authHeaderName = "api-key";
+    authHeaderName = "Authorization";
   } else {
     authValue = req.headers.get("Authorization") ?? "";
     authHeaderName = "Authorization";
