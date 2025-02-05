@@ -3,14 +3,17 @@ import { getServerSideConfig } from "../config/server";
 import { OPENAI_BASE_URL, ServiceProvider } from "../constant";
 import { cloudflareAIGatewayUrl } from "../utils/cloudflare";
 import { getModelProvider, isModelNotavailableInServer } from "../utils/model";
+import { useChatStore } from "../store";
 
 const serverConfig = getServerSideConfig();
 
 export async function requestOpenai(req: NextRequest) {
   const controller = new AbortController();
 
-const isAzure = req.nextUrl.pathname.includes("azure/deployments") || Boolean(serverConfig.azureUrl && serverConfig.azureUrl.includes(".models.ai.azure.com"));
-
+console.log("[pathname: Azure?]", req.nextUrl.pathname);
+const isAzure = req.nextUrl.pathname.includes("azure/deployments");
+  //|| Boolean(serverConfig.azureUrl && serverConfig.azureUrl.includes(".models.ai.azure.com"))
+console.log("[Auth Header Name]", authHeaderName);
   var authValue,
     authHeaderName = "";
   if (isAzure) {
@@ -51,16 +54,14 @@ console.log("[Auth Value Present]", !!authValue);
   );
 
   if (isAzure) {
-    console.log("[Original Path]", req.nextUrl.pathname);  // Log initial path
-    // const isAIFoundation = serverConfig.azureUrl?.includes(".models.ai.azure.com");
+    console.log("[Original Path: azure check]", req.nextUrl.pathname);  // Log initial path
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
-    const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
-    console.log("[Is AI Foundation]", isAIFoundation);
-      if (isAIFoundation) {
-    // For AI Foundation models, use direct path without deployments
-    // failed to work. path = "chat/completions";
+    const modelConfig = useChatStore.getState().currentSession().mask.modelConfig;
+    const deepSeek = modelConfig.model.includes("deekseek");
+    console.log("[Is AI deepSeek?]", deepSeek);
+      if (deepSeek) {
         path = "chat/completions";
      /* path = req.nextUrl.pathname
         .replace("/api/azure/openai/", "")
