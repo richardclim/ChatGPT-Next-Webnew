@@ -3,7 +3,6 @@ import { getServerSideConfig } from "../config/server";
 import { OPENAI_BASE_URL, ServiceProvider } from "../constant";
 import { cloudflareAIGatewayUrl } from "../utils/cloudflare";
 import { getModelProvider, isModelNotavailableInServer } from "../utils/model";
-import { useChatStore } from "../store";
 
 const serverConfig = getServerSideConfig();
 
@@ -58,10 +57,9 @@ console.log("[Auth Value Present]", !!authValue);
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
-    const modelConfig = useChatStore.getState().currentSession().mask.modelConfig;
-    const deepSeek = modelConfig.model.includes("deekseek");
-    console.log("[Is AI deepSeek?]", deepSeek);
-      if (deepSeek) {
+      const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
+    console.log("[Is AI Foundation]", isAIFoundation);
+      if (isAIFoundation) {
         path = "chat/completions";
      /* path = req.nextUrl.pathname
         .replace("/api/azure/openai/", "")
@@ -70,13 +68,15 @@ console.log("[Auth Value Present]", !!authValue);
         .slice(-2)
         .join("/");
       */
-  } else {
-    baseUrl = baseUrl.split("/deployments").shift() as string;
-    path = `${req.nextUrl.pathname.replaceAll(
-      "/api/azure/",
-      "",
-    )}?api-version=${azureApiVersion}`;
-    console.log("[Azure OpenAI Path]", path); 
+      } else {
+        baseUrl = baseUrl.split("/deployments").shift() as string;
+        path = `${req.nextUrl.pathname.replaceAll(
+          "/api/azure/",
+          "",
+        )}?api-version=${azureApiVersion}`;
+        console.log("[Azure OpenAI Path]", path); 
+          }
+        
     // Forward compatibility:
     // if display_name(deployment_name) not set, and '{deploy-id}' in AZURE_URL
     // then using default '{deploy-id}'
@@ -101,7 +101,6 @@ console.log("[Auth Value Present]", !!authValue);
       if (realDeployName) {
         console.log("[Replace with DeployId", realDeployName);
         path = path.replaceAll(modelName, realDeployName);
-      }
       }
       }
         console.log("[Final Path]", path);
