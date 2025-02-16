@@ -312,6 +312,7 @@ export class ChatGPTApi implements LLMApi {
                 content: string;
                 tool_calls: ChatMessageTool[];
                 reasoning_content: string | null;
+                reasoning: string | null;
               };
             }>;
 
