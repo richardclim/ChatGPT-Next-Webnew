@@ -234,7 +234,7 @@ export class ChatGPTApi implements LLMApi {
         presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
         frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
         top_p: !isO1OrO3 ? modelConfig.top_p : 1,
-        include_reasoning: true,
+        ...(modelConfig.providerName !== ServiceProvider.Azure && {include_reasoning: true}),
         // max_tokens: Math.max(modelConfig.max_tokens, 1024),
         // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
       };
