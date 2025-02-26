@@ -189,10 +189,10 @@ export class ClaudeApi implements LLMApi {
 
       model: modelConfig.model,
       max_tokens: modelConfig.max_tokens,
-      temperature: modelConfig.temperature,
+      temperature: modelConfig.model === "claude-3-7-sonnet-20250219" ? 1 : modelConfig.temperature,
       top_p: modelConfig.top_p,
       // top_k: modelConfig.top_k,
-      top_k: 5,
+      // top_k: 5,
       thinking: {
         type: "enabled",
         budget_tokens: modelConfig.max_tokens - 1, // Default value from example
