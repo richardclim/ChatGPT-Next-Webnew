@@ -205,6 +205,7 @@ export class ClaudeApi implements LLMApi {
 
     const controller = new AbortController();
     options.onController?.(controller);
+    let inThinkingBlock = false;
 
     if (shouldStream) {
       let index = -1;
@@ -234,17 +235,20 @@ export class ClaudeApi implements LLMApi {
           let chunkJson:
             | undefined
             | {
-                type: "content_block_delta" | "content_block_stop";
+                type: "content_block_delta" | "content_block_stop" | "content_block_start";
                 content_block?: {
-                  type: "tool_use";
+                  type: "tool_use" | "thinking" | "text" | "redacted_thinking";
                   id: string;
                   name: string;
+                  thinking?: string;
+                  data?: string;
                 };
                 delta?: {
-                  type: "text_delta" | "input_json_delta" | "thinking_delta";
+                  type: "text_delta" | "input_json_delta" | "thinking_delta" | "signature_delta";
                   text?: string;
                   partial_json?: string;
                   thinking?: string;
+                  signature?: string;
                 };
                 index: number;
               };
@@ -271,8 +275,19 @@ export class ClaudeApi implements LLMApi {
             runTools[index]["function"]["arguments"] +=
               chunkJson?.delta?.partial_json;
           }
+          if (chunkJson?.type === "content_block_start" && chunkJson?.content_block?.type === "thinking") {
+            inThinkingBlock = true;
+            return "🧠";
+          }
           if (chunkJson?.delta?.type === "thinking_delta" && chunkJson?.delta?.thinking) {
-            return `🧠 ${chunkJson.delta.thinking}`;
+            return `${chunkJson.delta.thinking}`;
+          }
+          if (chunkJson?.type === "content_block_stop" && inThinkingBlock) {
+            return "🧠";
+            inThinkingBlock = false;
+          }
+          if (chunkJson?.content_block?.type === "redacted_thinking") {
+            return `${chunkJson.content_block.data}`;
           }
           return chunkJson?.delta?.text;
         },
