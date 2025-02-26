@@ -40,6 +40,10 @@ export interface AnthropicChatRequest {
   top_k?: number; // Only sample from the top K options for each subsequent token.
   metadata?: object; // An object describing metadata about the request.
   stream?: boolean; // Whether to incrementally stream the response using server-sent events.
+  thinking?: {
+    type: "enabled" | "disabled";
+    budget_tokens: number;
+  };
 }
 
 export interface ChatRequest {
@@ -189,6 +193,10 @@ export class ClaudeApi implements LLMApi {
       top_p: modelConfig.top_p,
       // top_k: modelConfig.top_k,
       top_k: 5,
+      thinking: {
+        type: "enabled",
+        budget_tokens: modelConfig.max_tokens - 1, // Default value from example
+      },
     };
 
     const path = this.path(Anthropic.ChatPath);
