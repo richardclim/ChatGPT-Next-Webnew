@@ -241,9 +241,10 @@ export class ClaudeApi implements LLMApi {
                   name: string;
                 };
                 delta?: {
-                  type: "text_delta" | "input_json_delta";
+                  type: "text_delta" | "input_json_delta" | "thinking_delta";
                   text?: string;
                   partial_json?: string;
+                  thinking?: string;
                 };
                 index: number;
               };
@@ -269,6 +270,9 @@ export class ClaudeApi implements LLMApi {
             // @ts-ignore
             runTools[index]["function"]["arguments"] +=
               chunkJson?.delta?.partial_json;
+          }
+          if (chunkJson?.delta?.type === "thinking_delta" && chunkJson?.delta?.thinking) {
+            return `🧠 ${chunkJson.delta.thinking}`;
           }
           return chunkJson?.delta?.text;
         },
