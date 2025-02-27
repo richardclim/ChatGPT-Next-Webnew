@@ -283,8 +283,8 @@ export class ClaudeApi implements LLMApi {
             return `${chunkJson.delta.thinking}`;
           }
           if (chunkJson?.type === "content_block_stop" && inThinkingBlock) {
-            return "🧠";
             inThinkingBlock = false;
+            return "🧠\n\n";
           }
           if (chunkJson?.content_block?.type === "redacted_thinking") {
             return `${chunkJson.content_block.data}`;
