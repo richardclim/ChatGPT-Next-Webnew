@@ -311,8 +311,8 @@ export class ChatGPTApi implements LLMApi {
               delta: {
                 content: string;
                 tool_calls: ChatMessageTool[];
-                reasoning_content: string | null;
-                reasoning: string | null;
+                reasoning_content?: string | null;
+                reasoning?: string | null;
               };
             }>;
 
