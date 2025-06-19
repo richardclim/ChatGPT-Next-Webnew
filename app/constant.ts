@@ -221,7 +221,12 @@ export const ByteDance = {
 
 export const Alibaba = {
   ExampleEndpoint: ALIBABA_BASE_URL,
-  ChatPath: "v1/services/aigc/text-generation/generation",
+  ChatPath: (modelName: string) => {
+    if (modelName.includes("vl") || modelName.includes("omni")) {
+      return "v1/services/aigc/multimodal-generation/generation";
+    }
+    return `v1/services/aigc/text-generation/generation`;
+  },
 };
 
 export const Tencent = {
@@ -412,6 +417,14 @@ export const KnowledgeCutOffDate: Record<string, string> = {
   "gpt-4-turbo": "2023-12",
   "gpt-4-turbo-2024-04-09": "2023-12",
   "gpt-4-turbo-preview": "2023-12",
+  "gpt-4.1": "2024-06",
+  "gpt-4.1-2025-04-14": "2024-06",
+  "gpt-4.1-mini": "2024-06",
+  "gpt-4.1-mini-2025-04-14": "2024-06",
+  "gpt-4.1-nano": "2024-06",
+  "gpt-4.1-nano-2025-04-14": "2024-06",
+  "gpt-4.5-preview": "2023-10",
+  "gpt-4.5-preview-2025-02-27": "2023-10",
   "gpt-4o": "2023-10",
   "gpt-4o-2024-05-13": "2023-10",
   "gpt-4o-2024-08-06": "2023-10",
@@ -453,6 +466,7 @@ export const DEFAULT_TTS_VOICES = [
 export const VISION_MODEL_REGEXES = [
   /vision/,
   /gpt-4o/,
+  /gpt-4\.1/,
   /claude-3/,
   /gemini-1\.5/,
   /gemini-exp/,
@@ -464,6 +478,8 @@ export const VISION_MODEL_REGEXES = [
   /^dall-e-3$/, // Matches exactly "dall-e-3"
   /glm-4v/,
   /vl/i,
+  /o3/,
+  /o4-mini/,
 ];
 
 export const EXCLUDE_VISION_MODEL_REGEXES = [/claude-3-5-haiku-20241022/];
@@ -480,6 +496,14 @@ const openaiModels = [
   "gpt-4-32k-0613",
   "gpt-4-turbo",
   "gpt-4-turbo-preview",
+  "gpt-4.1",
+  "gpt-4.1-2025-04-14",
+  "gpt-4.1-mini",
+  "gpt-4.1-mini-2025-04-14",
+  "gpt-4.1-nano",
+  "gpt-4.1-nano-2025-04-14",
+  "gpt-4.5-preview",
+  "gpt-4.5-preview-2025-02-27",
   "gpt-4o",
   "gpt-4o-2024-05-13",
   "gpt-4o-2024-08-06",
@@ -494,23 +518,20 @@ const openaiModels = [
   "o1-mini",
   "o1-preview",
   "o3-mini",
+  "o3",
+  "o4-mini",
 ];
 
 const googleModels = [
-  "gemini-1.0-pro", // Deprecated on 2/15/2025
   "gemini-1.5-pro-latest",
   "gemini-1.5-pro",
   "gemini-1.5-pro-002",
-  "gemini-1.5-pro-exp-0827",
   "gemini-1.5-flash-latest",
   "gemini-1.5-flash-8b-latest",
   "gemini-1.5-flash",
   "gemini-1.5-flash-8b",
   "gemini-1.5-flash-002",
-  "gemini-1.5-flash-exp-0827",
   "learnlm-1.5-pro-experimental",
-  "gemini-exp-1114",
-  "gemini-exp-1121",
   "gemini-exp-1206",
   "gemini-2.0-flash",
   "gemini-2.0-flash-exp",
@@ -520,7 +541,7 @@ const googleModels = [
   "gemini-2.0-flash-thinking-exp-01-21",
   "gemini-2.0-pro-exp",
   "gemini-2.0-pro-exp-02-05",
-  "gemini-2.5-pro-exp-03-25",
+  "gemini-2.5-pro-preview-06-05",
 ];
 
 const anthropicModels = [
@@ -537,6 +558,7 @@ const anthropicModels = [
   "claude-3-5-sonnet-20241022",
   "claude-3-5-sonnet-latest",
   "claude-3-7-sonnet-20250219",
+  "claude-3-7-sonnet-latest",
 ];
 
 const baiduModels = [
@@ -570,6 +592,9 @@ const alibabaModes = [
   "qwen-max-0403",
   "qwen-max-0107",
   "qwen-max-longcontext",
+  "qwen-omni-turbo",
+  "qwen-vl-plus",
+  "qwen-vl-max",
 ];
 
 const tencentModels = [
@@ -603,6 +628,18 @@ const xAIModes = [
   "grok-2-vision-1212",
   "grok-2-vision",
   "grok-2-vision-latest",
+  "grok-3-mini-fast-beta",
+  "grok-3-mini-fast",
+  "grok-3-mini-fast-latest",
+  "grok-3-mini-beta",
+  "grok-3-mini",
+  "grok-3-mini-latest",
+  "grok-3-fast-beta",
+  "grok-3-fast",
+  "grok-3-fast-latest",
+  "grok-3-beta",
+  "grok-3",
+  "grok-3-latest",
 ];
 
 const chatglmModels = [
