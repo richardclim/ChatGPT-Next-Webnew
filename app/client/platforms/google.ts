@@ -160,8 +160,6 @@ export class GeminiProApi implements LLMApi {
         maxOutputTokens: modelConfig.max_tokens,
         topP: modelConfig.top_p,
         // "topK": modelConfig.top_k,
-      },
-      config: {
         thinkingConfig: {
           thinkingBudget: 32768,
           includeThoughts: true,
