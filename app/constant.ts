@@ -186,7 +186,7 @@ export const Azure = {
   ImagePath: (deployName: string, apiVersion: string) =>
     `deployments/${deployName}/images/generations?api-version=${apiVersion}`,
   ExampleEndpoint: "https://{resource-url}/openai",
-}; 
+};
 
 export const Google = {
   ExampleEndpoint: "https://generativelanguage.googleapis.com/",
@@ -542,6 +542,8 @@ const googleModels = [
   "gemini-2.0-pro-exp",
   "gemini-2.0-pro-exp-02-05",
   "gemini-2.5-pro-preview-06-05",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
 ];
 
 const anthropicModels = [

@@ -161,6 +161,12 @@ export class GeminiProApi implements LLMApi {
         topP: modelConfig.top_p,
         // "topK": modelConfig.top_k,
       },
+      config: {
+        thinkingConfig: {
+          thinkingBudget: 32768,
+          includeThoughts: true,
+        },
+      },
       safetySettings: [
         {
           category: "HARM_CATEGORY_HARASSMENT",
