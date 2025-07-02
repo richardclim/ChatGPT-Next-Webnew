@@ -14,7 +14,7 @@ import {
   usePluginStore,
   ChatMessageTool,
 } from "@/app/store";
-import { stream } from "@/app/utils/chat";
+import { stream, streamWithThink } from "@/app/utils/chat";
 import { getClientConfig } from "@/app/config/client";
 import { GEMINI_BASE_URL } from "@/app/constant";
 
@@ -217,15 +217,105 @@ export class GeminiProApi implements LLMApi {
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
           );
-        return stream(
-          chatPath,
-          requestPayload,
-          getHeaders(),
+
+        const processToolMessage = (
+          requestPayload: RequestPayload,
+          toolCallMessage: any,
+          toolCallResult: any[],
+        ) => {
+          // @ts-ignore
+          requestPayload?.contents?.splice(
+            // @ts-ignore
+            requestPayload?.contents?.length,
+            0,
+            {
+              role: "model",
+              parts: toolCallMessage.tool_calls.map(
+                (tool: ChatMessageTool) => ({
+                  functionCall: {
+                    name: tool?.function?.name,
+                    args: JSON.parse(tool?.function?.arguments as string),
+                  },
+                }),
+              ),
+            },
+            // @ts-ignore
+            ...toolCallResult.map((result) => ({
+              role: "function",
+              parts: [
+                {
+                  functionResponse: {
+                    name: result.name,
+                    response: {
+                      name: result.name,
+                      content: result.content, // TODO just text content...
+                    },
+                  },
+                },
+              ],
+            })),
+          );
+        };
+
+        const toolDeclarations =
           // @ts-ignore
           tools.length > 0
             ? // @ts-ignore
               [{ functionDeclarations: tools.map((tool) => tool.function) }]
-            : [],
+            : [];
+
+        if (isThinking) {
+          return streamWithThink(
+            chatPath,
+            requestPayload,
+            getHeaders(),
+            toolDeclarations,
+            funcs,
+            controller,
+            (text: string, runTools: ChatMessageTool[]) => {
+              const chunkJson = JSON.parse(text);
+
+              const functionCall = chunkJson?.candidates
+                ?.at(0)
+                ?.content.parts.at(0)?.functionCall;
+              if (functionCall) {
+                const { name, args } = functionCall;
+                runTools.push({
+                  id: nanoid(),
+                  type: "function",
+                  function: {
+                    name,
+                    arguments: JSON.stringify(args),
+                  },
+                });
+              }
+
+              const parts = chunkJson?.candidates?.at(0)?.content?.parts;
+              let isThinkingPart = false;
+              if (!parts) {
+                return { isThinking: false, content: undefined };
+              }
+              const content = parts
+                .map((part: { text: string; thought?: boolean }) => {
+                  if (part.thought) {
+                    isThinkingPart = true;
+                  }
+                  return part.text;
+                })
+                .join("\n\n");
+
+              return { isThinking: isThinkingPart, content };
+            },
+            processToolMessage,
+            options,
+          );
+        }
+
+        return stream(
+          chatPath,
+          requestPayload,
+          getHeaders(),
+          toolDeclarations,
           funcs,
           controller,
           // parseSSE
@@ -253,44 +343,7 @@ export class GeminiProApi implements LLMApi {
               .join("\n\n");
           },
           // processToolMessage, include tool_calls message and tool call results
-          (
-            requestPayload: RequestPayload,
-            toolCallMessage: any,
-            toolCallResult: any[],
-          ) => {
-            // @ts-ignore
-            requestPayload?.contents?.splice(
-              // @ts-ignore
-              requestPayload?.contents?.length,
-              0,
-              {
-                role: "model",
-                parts: toolCallMessage.tool_calls.map(
-                  (tool: ChatMessageTool) => ({
-                    functionCall: {
-                      name: tool?.function?.name,
-                      args: JSON.parse(tool?.function?.arguments as string),
-                    },
-                  }),
-                ),
-              },
-              // @ts-ignore
-              ...toolCallResult.map((result) => ({
-                role: "function",
-                parts: [
-                  {
-                    functionResponse: {
-                      name: result.name,
-                      response: {
-                        name: result.name,
-                        content: result.content, // TODO just text content...
-                      },
-                    },
-                  },
-                ],
-              })),
-            );
-          },
+          processToolMessage,
           options,
         );
       } else {
