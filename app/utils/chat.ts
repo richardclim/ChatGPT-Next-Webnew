@@ -627,16 +627,10 @@ export function streamWithThink(
               if (remainText.length > 0) {
                 remainText += "\n";
               }
-              remainText += "> " + chunk.content;
-            } else {
-              // Handle newlines in thinking content
-              if (chunk.content.includes("\n\n")) {
-                const lines = chunk.content.split("\n\n");
-                remainText += lines.join("\n\n> ");
-              } else {
-                remainText += chunk.content;
-              }
+              remainText += "> ";
             }
+            // For all thinking content, replace internal newlines with a newline and a quote.
+            remainText += chunk.content.replace(/\n/g, "\n> ");
           } else {
             // If in normal mode
             if (isInThinkingMode || isThinkingChanged) {
