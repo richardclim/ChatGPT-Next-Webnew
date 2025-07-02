@@ -291,18 +291,13 @@ export class GeminiProApi implements LLMApi {
               }
 
               const parts = chunkJson?.candidates?.at(0)?.content?.parts;
-              let isThinkingPart = false;
-              if (!parts) {
+              if (!parts || parts.length === 0) {
                 return { isThinking: false, content: undefined };
               }
+              const isThinkingPart = !!parts[0].thought;
               const content = parts
-                .map((part: { text: string; thought?: boolean }) => {
-                  if (part.thought) {
-                    isThinkingPart = true;
-                  }
-                  return part.text;
-                })
-                .join("\n\n");
+                .map((part: { text: string }) => part.text)
+                .join("");
 
               return { isThinking: isThinkingPart, content };
             },
