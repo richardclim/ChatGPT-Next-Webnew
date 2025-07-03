@@ -150,6 +150,10 @@ export class GeminiProApi implements LLMApi {
         model: options.config.model,
       },
     };
+    const isThinking =
+      options.config.model.includes("-thinking") ||
+      options.config.model.includes("pro");
+
     const requestPayload = {
       contents: messages,
       generationConfig: {
@@ -160,10 +164,12 @@ export class GeminiProApi implements LLMApi {
         maxOutputTokens: modelConfig.max_tokens,
         topP: modelConfig.top_p,
         // "topK": modelConfig.top_k,
-        thinkingConfig: {
-          thinkingBudget: 32768,
-          includeThoughts: true,
-        },
+        ...(isThinking && {
+          thinkingConfig: {
+            thinkingBudget: 32768,
+            includeThoughts: true,
+          },
+        }),
       },
       safetySettings: [
         {
@@ -202,9 +208,6 @@ export class GeminiProApi implements LLMApi {
         headers: getHeaders(),
       };
 
-      const isThinking =
-        options.config.model.includes("-thinking") ||
-        options.config.model.includes("pro");
       // make a fetch request
       const requestTimeoutId = setTimeout(
         () => controller.abort(),
