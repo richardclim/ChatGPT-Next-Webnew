@@ -30,7 +30,7 @@ import { type ClientApi, getClientApi } from "../client/api";
 import { useAccessStore } from "../store";
 import clsx from "clsx";
 import { initializeMcpSystem, isMcpEnabled } from "../mcp/actions";
-
+import { ChatMenuPortal } from "./ChatMenuPortal";
 export function Loading(props: { noLogo?: boolean }) {
   return (
     <div className={clsx("no-dark", styles["loading-content"])}>
@@ -216,6 +216,7 @@ function Screen() {
       })}
     >
       {renderContent()}
+      <ChatMenuPortal />
     </div>
   );
 }

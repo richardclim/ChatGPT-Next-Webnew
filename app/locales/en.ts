@@ -32,6 +32,12 @@ const en: LocaleType = {
   },
   ChatItem: {
     ChatItemCount: (count: number) => `${count} messages`,
+    Delete: "Delete",
+    Pin: "Pin",
+    Unpin: "Unpin",
+    Rename: "Rename",
+    RenameContent: "Enter new name for the chat:",
+    MoreOptions: "More options",
   },
   Chat: {
     SubTitle: (count: number) => `${count} messages`,

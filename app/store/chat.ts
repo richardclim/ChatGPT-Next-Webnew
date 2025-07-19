@@ -94,6 +94,8 @@ export interface ChatSession {
   clearContextIndex?: number;
 
   mask: Mask;
+  pinned: boolean;
+  pinnedAt?: number | null;
 }
 
 export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
@@ -117,6 +119,8 @@ function createEmptySession(): ChatSession {
     lastSummarizeIndex: 0,
 
     mask: createEmptyMask(),
+    pinned: false,
+    pinnedAt: null,
   };
 }
 
@@ -228,8 +232,36 @@ const DEFAULT_CHAT_STATE = {
   sessions: [createEmptySession()],
   currentSessionIndex: 0,
   lastInput: "",
+  isMenuOpen: false,
+  menuPosition: { top: 0, left: 0 },
+  menuSessionId: null as string | null,
 };
 
+function sortSessions(
+  sessions: ChatSession[],
+  currentSessionId?: string,
+): { sortedSessions: ChatSession[]; newIndex: number } {
+  const pinnedSessions = sessions
+    .filter((s) => s.pinned)
+    .sort((a, b) => {
+      const timeA = a.pinnedAt ?? 0;
+      const timeB = b.pinnedAt ?? 0;
+      return timeB - timeA;
+    });
+
+  const unpinnedSessions = sessions
+    .filter((s) => !s.pinned)
+    .sort((a, b) => b.lastUpdate - a.lastUpdate);
+
+  const sortedSessions = [...pinnedSessions, ...unpinnedSessions];
+  // Math.max(0, -1) results in 0, selecting the first session by default.
+  const newIndex = Math.max(
+    0,
+    sortedSessions.findIndex((s) => s.id === currentSessionId),
+  );
+
+  return { sortedSessions, newIndex };
+}
 export const useChatStore = createPersistStore(
   DEFAULT_CHAT_STATE,
   (set, _get) => {
@@ -241,6 +273,85 @@ export const useChatStore = createPersistStore(
     }
 
     const methods = {
+      openMenu(sessionId: string, position: { top: number; left: number }) {
+        set({
+          isMenuOpen: true,
+          menuSessionId: sessionId,
+          menuPosition: position,
+        });
+      },
+
+      closeMenu() {
+        set({
+          isMenuOpen: false,
+          menuSessionId: null,
+        });
+      },
+
+      pinSession(index: number) {
+        set((state) => {
+          if (index < 0 || index >= state.sessions.length) return state;
+
+          const updatedSession = state.sessions.map((session, i) => {
+            if (i === index) {
+              return { ...session, pinned: true, pinnedAt: Date.now() };
+            }
+            return session;
+          });
+
+          const currentSessionId =
+            state.sessions[state.currentSessionIndex]?.id;
+          const { sortedSessions, newIndex } = sortSessions(
+            updatedSession,
+            currentSessionId,
+          );
+
+          return {
+            sessions: sortedSessions,
+            currentSessionIndex: newIndex,
+          };
+        });
+      },
+
+      updateSessionTopic(sessionIndex: number, newTopic: string) {
+        set((state) => {
+          const sessions = [...state.sessions];
+          if (sessionIndex < 0 || sessionIndex >= sessions.length) return state;
+
+          const sessionToUpdate = sessions[sessionIndex];
+          sessionToUpdate.topic = newTopic;
+
+          return {
+            sessions,
+          };
+        });
+      },
+
+      unpinSession(index: number) {
+        set((state) => {
+          if (index < 0 || index >= state.sessions.length) return state;
+
+          const updatedSession = state.sessions.map((session, i) => {
+            if (i === index) {
+              return { ...session, pinned: false, pinnedAt: null };
+            }
+            return session;
+          });
+
+          const currentSessionId =
+            state.sessions[state.currentSessionIndex]?.id;
+          const { sortedSessions, newIndex } = sortSessions(
+            updatedSession,
+            currentSessionId,
+          );
+
+          return {
+            sessions: sortedSessions,
+            currentSessionIndex: newIndex,
+          };
+        });
+      },
+
       forkSession() {
         // 获取当前会话
         const currentSession = get().currentSession();
@@ -396,6 +507,19 @@ export const useChatStore = createPersistStore(
         get().updateTargetSession(targetSession, (session) => {
           session.messages = session.messages.concat();
           session.lastUpdate = Date.now();
+        });
+
+        set((state) => {
+          const currentId = state.sessions[state.currentSessionIndex]?.id;
+
+          const { sortedSessions, newIndex } = sortSessions(
+            [...state.sessions],
+            currentId,
+          );
+          return {
+            sessions: sortedSessions,
+            currentSessionIndex: newIndex,
+          };
         });
 
         get().updateStat(message, targetSession);
@@ -658,13 +782,27 @@ export const useChatStore = createPersistStore(
       updateMessage(
         sessionIndex: number,
         messageIndex: number,
-        updater: (message?: ChatMessage) => void,
+        updater: (message: ChatMessage) => ChatMessage,
       ) {
-        const sessions = get().sessions;
-        const session = sessions.at(sessionIndex);
-        const messages = session?.messages;
-        updater(messages?.at(messageIndex));
-        set(() => ({ sessions }));
+        set((state) => {
+          const newSessions = state.sessions.map((session, sIndex) => {
+            if (sIndex !== sessionIndex) {
+              return session;
+            }
+
+            const newMessages = session.messages.map((message, mIndex) => {
+              if (mIndex !== messageIndex) {
+                return message;
+              }
+              return updater(message);
+            });
+
+            // Return a new session object with the new messages array
+            return { ...session, messages: newMessages };
+          });
+
+          return { sessions: newSessions };
+        });
       },
 
       resetSession(session: ChatSession) {
@@ -876,7 +1014,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.3,
+    version: 3.4,
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(
@@ -939,6 +1077,27 @@ export const useChatStore = createPersistStore(
           s.mask.modelConfig.compressModel = "";
           s.mask.modelConfig.compressProviderName = "";
         });
+      }
+      if (version < 3.4) {
+        newState.sessions.forEach((s) => {
+          s.pinned = s.pinned ?? false; // Add pinned field, default to false
+
+          if (s.pinned) {
+            s.pinnedAt = s.pinnedAt ?? s.lastUpdate ?? Date.now();
+          } else {
+            s.pinnedAt = null;
+          }
+        });
+        newState.isMenuOpen = newState.isMenuOpen ?? false;
+        newState.menuPosition = newState.menuPosition ?? { top: 0, left: 0 };
+        newState.menuSessionId = newState.menuSessionId ?? null;
+        // Initial sort after migration
+        const { sortedSessions, newIndex } = sortSessions(
+          newState.sessions,
+          newState.sessions[newState.currentSessionIndex]?.id,
+        );
+        newState.sessions = sortedSessions;
+        newState.currentSessionIndex = newIndex;
       }
 
       return newState as any;
