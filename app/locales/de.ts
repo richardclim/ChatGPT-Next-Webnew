@@ -77,7 +77,7 @@ const de: PartialLocaleType = {
       Masks: "Alle Masken",
       Clear: "Chat löschen",
       Settings: "Gesprächseinstellungen",
-      UploadImage: "Bild hochladen",      
+      UploadImage: "Bild hochladen",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -433,6 +433,18 @@ const de: PartialLocaleType = {
         },
         Endpoint: {
           Title: "Schnittstellenadresse",
+          SubTitle: "Beispiel:",
+        },
+      },
+      AI302: {
+        ApiKey: {
+          Title: "Schnittstellenschlüssel",
+          SubTitle:
+            "Verwenden Sie einen benutzerdefinierten 302.AI API-Schlüssel",
+          Placeholder: "302.AI API-Schlüssel",
+        },
+        Endpoint: {
+          Title: "Endpunktadresse",
           SubTitle: "Beispiel:",
         },
       },

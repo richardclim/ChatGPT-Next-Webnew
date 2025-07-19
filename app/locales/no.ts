@@ -78,7 +78,7 @@ const no: PartialLocaleType = {
       Masks: "Alle masker",
       Clear: "Rydd samtale",
       Settings: "Samtaleinnstillinger",
-      UploadImage: "Last opp bilde",      
+      UploadImage: "Last opp bilde",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -434,6 +434,17 @@ const no: PartialLocaleType = {
       CustomModel: {
         Title: "Egendefinert modellnavn",
         SubTitle: "Legg til egendefinerte modellalternativer, skill med komma",
+      },
+      AI302: {
+        ApiKey: {
+          Title: "API-nøkkel",
+          SubTitle: "Bruk egendefinert 302.AI API-nøkkel",
+          Placeholder: "302.AI API-nøkkel",
+        },
+        Endpoint: {
+          Title: "API-adresse",
+          SubTitle: "Eksempel:",
+        },
       },
     },
 
