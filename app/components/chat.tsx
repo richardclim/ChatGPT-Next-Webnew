@@ -1284,7 +1284,9 @@ function _Chat() {
     const images = getMessageImages(userMessage);
     // For resent messages, isPasted should be false.
     // If the original userMessage had isPasted=true, it wouldn't have a bot response to resend.
-    chatStore.onUserInput(textContent, images, false, false).then(() => setIsLoading(false));
+    chatStore
+      .onUserInput(textContent, images, false, false)
+      .then(() => setIsLoading(false));
     inputRef.current?.focus();
   };
 
@@ -1829,7 +1831,10 @@ function _Chat() {
               className={styles["chat-body"]}
               ref={scrollRef}
               onScroll={(e) => onChatBodyScroll(e.currentTarget)}
-              onMouseDown={() => inputRef.current?.blur()}
+              onMouseDown={() => {
+                inputRef.current?.blur();
+                setAutoScroll(false);
+              }}
               onTouchStart={() => {
                 inputRef.current?.blur();
                 setAutoScroll(false);
@@ -1866,46 +1871,42 @@ function _Chat() {
                               <div className={styles["chat-message-edit"]}>
                                 <IconButton
                                   icon={<EditIcon />}
-                                    aria={Locale.Chat.Actions.Edit}
-                                    onClick={async () => {
-                                      const newTextContent = await showPrompt(
-                                        Locale.Chat.Actions.Edit,
-                                        getMessageTextContent(message),
-                                        10,
-                                      );
-                                      chatStore.updateTargetSession(
-                                        session,
-                                        (session) => {
-                                          const m = session.mask.context
-                                            .concat(session.messages)
-                                            .find(
-                                              (m) => m.id === message.id,
+                                  aria={Locale.Chat.Actions.Edit}
+                                  onClick={async () => {
+                                    const newTextContent = await showPrompt(
+                                      Locale.Chat.Actions.Edit,
+                                      getMessageTextContent(message),
+                                      10,
+                                    );
+                                    chatStore.updateTargetSession(
+                                      session,
+                                      (session) => {
+                                        const m = session.mask.context
+                                          .concat(session.messages)
+                                          .find((m) => m.id === message.id);
+                                        if (m) {
+                                          if (typeof m.content === "string") {
+                                            m.content = newTextContent;
+                                          } else if (Array.isArray(m.content)) {
+                                            const textItem = m.content.find(
+                                              (item) => item.type === "text",
                                             );
-                                          if (m) {
-                                            if (typeof m.content === "string") {
-                                              m.content = newTextContent;
-                                            } else if (
-                                              Array.isArray(m.content)
-                                            ) {
-                                              const textItem = m.content.find(
-                                                (item) => item.type === "text",
-                                              );
-                                              if (textItem) {
-                                                textItem.text = newTextContent;
-                                              } else {
-                                                // if no text item, add one
-                                                m.content.unshift({
-                                                  type: "text",
-                                                  text: newTextContent,
-                                                });
-                                              }
+                                            if (textItem) {
+                                              textItem.text = newTextContent;
+                                            } else {
+                                              // if no text item, add one
+                                              m.content.unshift({
+                                                type: "text",
+                                                text: newTextContent,
+                                              });
                                             }
                                           }
-                                        },
-                                      );
-                                    }}
-                                  ></IconButton>
-                                </div>
+                                        }
+                                      },
+                                    );
+                                  }}
+                                ></IconButton>
+                              </div>
                               {isUser ? (
                                 <Avatar avatar={config.avatar} />
                               ) : (
@@ -2143,8 +2144,8 @@ function _Chat() {
                   onInput={(e) => onInput(e.currentTarget.value)}
                   value={userInput}
                   onKeyDown={onInputKeyDown}
-                  onFocus={scrollToBottom}
-                  onClick={scrollToBottom}
+                  // onFocus={scrollToBottom}
+                  // onClick={scrollToBottom}
                   onPaste={handlePaste}
                   rows={inputRows}
                   autoFocus={autoFocus}
