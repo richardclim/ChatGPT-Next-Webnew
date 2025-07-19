@@ -76,7 +76,7 @@ const tr: PartialLocaleType = {
       Masks: "Tüm maskeler",
       Clear: "Sohbeti temizle",
       Settings: "Sohbet ayarları",
-      UploadImage: "Resim yükle",
+      UploadImage: "Resim yükle",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -422,17 +422,6 @@ const tr: PartialLocaleType = {
           Title: "API Anahtarı",
           SubTitle: "Özelleştirilmiş Alibaba Cloud API Anahtarı kullanın",
           Placeholder: "Alibaba Cloud API Anahtarı",
-        },
-        Endpoint: {
-          Title: "API Adresi",
-          SubTitle: "Örnek:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "API Anahtarı",
-          SubTitle: "Özelleştirilmiş 302.AI API Anahtarı kullanın",
-          Placeholder: "302.AI API Anahtarı",
         },
         Endpoint: {
           Title: "API Adresi",

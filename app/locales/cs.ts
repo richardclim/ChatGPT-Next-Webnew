@@ -76,7 +76,7 @@ const cs: PartialLocaleType = {
       Masks: "Všechny masky",
       Clear: "Vymazat konverzaci",
       Settings: "Nastavení konverzace",
-      UploadImage: "Nahrát obrázek",
+      UploadImage: "Nahrát obrázek",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -419,17 +419,6 @@ const cs: PartialLocaleType = {
           Title: "Rozhraní klíč",
           SubTitle: "Použijte vlastní Alibaba Cloud API Key",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Adresa rozhraní",
-          SubTitle: "Příklad:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Rozhraní klíč",
-          SubTitle: "Použijte vlastní 302.AI API Key",
-          Placeholder: "302.AI API Key",
         },
         Endpoint: {
           Title: "Adresa rozhraní",

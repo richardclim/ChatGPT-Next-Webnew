@@ -77,7 +77,7 @@ const fr: PartialLocaleType = {
       Masks: "Tous les masques",
       Clear: "Effacer la discussion",
       Settings: "Paramètres de la discussion",
-      UploadImage: "Télécharger une image",
+      UploadImage: "Télécharger une image",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -434,17 +434,6 @@ const fr: PartialLocaleType = {
         },
         Endpoint: {
           Title: "Adresse de l'interface",
-          SubTitle: "Exemple :",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Clé d'interface",
-          SubTitle: "Utiliser une clé API 302.AI personnalisée",
-          Placeholder: "Clé API 302.AI",
-        },
-        Endpoint: {
-          Title: "Adresse de l'endpoint",
           SubTitle: "Exemple :",
         },
       },

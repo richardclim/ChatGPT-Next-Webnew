@@ -76,7 +76,7 @@ const ko: PartialLocaleType = {
       Masks: "모든 마스크",
       Clear: "채팅 지우기",
       Settings: "채팅 설정",
-      UploadImage: "이미지 업로드",
+      UploadImage: "이미지 업로드",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -422,17 +422,6 @@ const ko: PartialLocaleType = {
       CustomModel: {
         Title: "커스텀 모델 이름",
         SubTitle: "커스텀 모델 옵션 추가, 영어 쉼표로 구분",
-      },
-      AI302: {
-        ApiKey: {
-          Title: "엔드포인트 키",
-          SubTitle: "커스텀 302.AI API 키 사용",
-          Placeholder: "302.AI API 키",
-        },
-        Endpoint: {
-          Title: "엔드포인트 주소",
-          SubTitle: "예: ",
-        },
       },
     },
 

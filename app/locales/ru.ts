@@ -76,7 +76,7 @@ const ru: PartialLocaleType = {
       Masks: "Все маски",
       Clear: "Очистить чат",
       Settings: "Настройки чата",
-      UploadImage: "Загрузить изображение",
+      UploadImage: "Загрузить изображение",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -422,17 +422,6 @@ const ru: PartialLocaleType = {
           Title: "Ключ интерфейса",
           SubTitle: "Использовать пользовательский Alibaba Cloud API-ключ",
           Placeholder: "Alibaba Cloud API-ключ",
-        },
-        Endpoint: {
-          Title: "Адрес интерфейса",
-          SubTitle: "Пример:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Ключ интерфейса",
-          SubTitle: "Использовать пользовательский 302.AI API-ключ",
-          Placeholder: "302.AI API-ключ",
         },
         Endpoint: {
           Title: "Адрес интерфейса",

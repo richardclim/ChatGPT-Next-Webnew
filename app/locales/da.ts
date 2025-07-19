@@ -78,7 +78,7 @@ const da: PartialLocaleType = {
       Masks: "Personaer",
       Clear: "Ryd kontekst",
       Settings: "Indstillinger",
-      UploadImage: "Upload billeder",
+      UploadImage: "Upload billeder",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -517,17 +517,6 @@ const da: PartialLocaleType = {
         GoogleSafetySettings: {
           Title: "Google sikkerhedsindstillinger",
           SubTitle: "Vælg et niveau for indholdskontrol",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "302.AI API Key",
-          SubTitle: "Brug en custom 302.AI API Key",
-          Placeholder: "302.AI API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint-adresse",
-          SubTitle: "Eksempel: ",
         },
       },
     },

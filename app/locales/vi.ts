@@ -76,7 +76,7 @@ const vi: PartialLocaleType = {
       Masks: "Tất cả mặt nạ",
       Clear: "Xóa cuộc trò chuyện",
       Settings: "Cài đặt trò chuyện",
-      UploadImage: "Tải lên hình ảnh",
+      UploadImage: "Tải lên hình ảnh",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -418,17 +418,6 @@ const vi: PartialLocaleType = {
           Title: "Khóa giao diện",
           SubTitle: "Sử dụng khóa Alibaba Cloud API tùy chỉnh",
           Placeholder: "Khóa API Alibaba Cloud",
-        },
-        Endpoint: {
-          Title: "Địa chỉ giao diện",
-          SubTitle: "Ví dụ:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Khóa API 302.AI",
-          SubTitle: "Sử dụng khóa API 302.AI tùy chỉnh",
-          Placeholder: "302.AI API Key",
         },
         Endpoint: {
           Title: "Địa chỉ giao diện",

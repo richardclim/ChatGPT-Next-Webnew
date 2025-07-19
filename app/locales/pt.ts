@@ -75,7 +75,7 @@ const pt: PartialLocaleType = {
       Prompt: "Prompts",
       Masks: "Máscaras",
       Clear: "Limpar Contexto",
-      Settings: "Configurações",
+      Settings: "Configurações",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -359,17 +359,6 @@ const pt: PartialLocaleType = {
         ApiVerion: {
           Title: "Versão API (Versão api claude)",
           SubTitle: "Verifique sua versão API do console Anthropic",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Chave API 302.AI",
-          SubTitle: "Use uma chave API 302.AI personalizada",
-          Placeholder: "302.AI API Key",
-        },
-        Endpoint: {
-          Title: "Endpoint Address",
-          SubTitle: "Exemplo: ",
         },
       },
       CustomModel: {

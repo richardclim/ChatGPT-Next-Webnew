@@ -77,7 +77,7 @@ const it: PartialLocaleType = {
       Masks: "Tutte le maschere",
       Clear: "Pulisci chat",
       Settings: "Impostazioni conversazione",
-      UploadImage: "Carica immagine",
+      UploadImage: "Carica immagine",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -432,17 +432,6 @@ const it: PartialLocaleType = {
           Title: "Chiave dell'interfaccia",
           SubTitle: "Utilizza una chiave API Alibaba Cloud personalizzata",
           Placeholder: "API Key Alibaba Cloud",
-        },
-        Endpoint: {
-          Title: "Indirizzo dell'interfaccia",
-          SubTitle: "Esempio:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Chiave dell'interfaccia",
-          SubTitle: "Utilizza una chiave API 302.AI personalizzata",
-          Placeholder: "Chiave API 302.AI",
         },
         Endpoint: {
           Title: "Indirizzo dell'interfaccia",

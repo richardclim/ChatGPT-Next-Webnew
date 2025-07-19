@@ -76,7 +76,7 @@ const id: PartialLocaleType = {
       Masks: "Semua Masker",
       Clear: "Hapus Obrolan",
       Settings: "Pengaturan Obrolan",
-      UploadImage: "Unggah Gambar",
+      UploadImage: "Unggah Gambar",      
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -420,17 +420,6 @@ const id: PartialLocaleType = {
           Title: "Kunci Antarmuka",
           SubTitle: "Gunakan Alibaba Cloud API Key kustom",
           Placeholder: "Alibaba Cloud API Key",
-        },
-        Endpoint: {
-          Title: "Alamat Antarmuka",
-          SubTitle: "Contoh:",
-        },
-      },
-      AI302: {
-        ApiKey: {
-          Title: "Kunci Antarmuka",
-          SubTitle: "Gunakan 302.AI API Key kustom",
-          Placeholder: "302.AI API Key",
         },
         Endpoint: {
           Title: "Alamat Antarmuka",
