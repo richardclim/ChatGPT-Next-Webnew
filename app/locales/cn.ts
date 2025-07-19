@@ -31,6 +31,12 @@ const cn = {
   },
   ChatItem: {
     ChatItemCount: (count: number) => `${count} 条对话`,
+    Delete: "删除",
+    Pin: "固定",
+    Unpin: "取消固定",
+    Rename: "重命名",
+    RenameContent: "为会话输入新名称:",
+    MoreOptions: "更多选项",
   },
   Chat: {
     SubTitle: (count: number) => `共 ${count} 条对话`,

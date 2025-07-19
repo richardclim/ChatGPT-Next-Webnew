@@ -1,5 +1,7 @@
-import DeleteIcon from "../icons/delete.svg";
-
+import KebabMenuIcon from "../icons/kebab-menu.svg";
+import { IconButton } from "./button";
+import React, { useState, useEffect, useRef } from "react";
+import { shallow } from "zustand/shallow";
 import styles from "./home.module.scss";
 import {
   DragDropContext,
@@ -9,16 +11,15 @@ import {
 } from "@hello-pangea/dnd";
 
 import { useChatStore } from "../store";
-
 import Locale from "../locales";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Path } from "../constant";
 import { MaskAvatar } from "./mask";
 import { Mask } from "../store/mask";
-import { useRef, useEffect } from "react";
 import { showConfirm } from "./ui-lib";
 import { useMobileScreen } from "../utils";
 import clsx from "clsx";
+import PinIcon from "../icons/pin.svg";
 
 export function ChatItem(props: {
   onClick?: () => void;
@@ -33,6 +34,23 @@ export function ChatItem(props: {
   mask: Mask;
 }) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
+  const [isHovered, setIsHovered] = useState(false);
+  const { isMenuOpen, menuSessionId, openMenu, closeMenu, isPinned } =
+    useChatStore(
+      (state) => ({
+        openMenu: state.openMenu,
+        closeMenu: state.closeMenu,
+        isMenuOpen: state.isMenuOpen,
+        menuSessionId: state.menuSessionId,
+        isPinned:
+          state.sessions.find((s) => s.id === props.id)?.pinned ?? false,
+      }),
+      shallow,
+    );
+  const [isAnimatingPin, setIsAnimatingPin] = useState(false);
+  const [isAnimatingUnpin, setIsAnimatingUnpin] = useState(false);
+  const prevPinnedStatusRef = useRef(isPinned);
+
   useEffect(() => {
     if (props.selected && draggableRef.current) {
       draggableRef.current?.scrollIntoView({
@@ -40,6 +58,22 @@ export function ChatItem(props: {
       });
     }
   }, [props.selected]);
+
+  useEffect(() => {
+    const currentPinnedStatus = isPinned;
+    if (prevPinnedStatusRef.current === true && currentPinnedStatus === false) {
+      // Was pinned, now unpinned
+      setIsAnimatingUnpin(true);
+      setTimeout(() => setIsAnimatingUnpin(false), 500);
+    } else if (
+      prevPinnedStatusRef.current === false &&
+      currentPinnedStatus === true
+    ) {
+      setIsAnimatingPin(true);
+      setTimeout(() => setIsAnimatingPin(false), 500);
+    }
+    prevPinnedStatusRef.current = currentPinnedStatus;
+  }, [isPinned]);
 
   const { pathname: currentPath } = useLocation();
   return (
@@ -50,8 +84,13 @@ export function ChatItem(props: {
             [styles["chat-item-selected"]]:
               props.selected &&
               (currentPath === Path.Chat || currentPath === Path.Home),
+            [styles["chat-item-pinned"]]: isPinned,
+            [styles["chat-item-animating-pin"]]: isAnimatingPin,
+            [styles["chat-item-animating-unpin"]]: isAnimatingUnpin,
           })}
           onClick={props.onClick}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
           ref={(ele) => {
             draggableRef.current = ele;
             provided.innerRef(ele);
@@ -62,6 +101,31 @@ export function ChatItem(props: {
             props.count,
           )}`}
         >
+          {!props.narrow && (
+            <div
+              className={styles["chat-item-menu-icon-container"]}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (isMenuOpen && menuSessionId === props.id) {
+                  closeMenu();
+                } else {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  openMenu(props.id, {
+                    top: rect.top - 21,
+                    left: rect.left + 33,
+                  });
+                }
+              }}
+            >
+              <IconButton
+                icon={isHovered || !isPinned ? <KebabMenuIcon /> : <PinIcon />}
+                shadow
+                title={Locale.ChatItem.MoreOptions}
+                className={styles["menu-icon-button"]}
+              />
+            </div>
+          )}
           {props.narrow ? (
             <div className={styles["chat-item-narrow"]}>
               <div className={clsx(styles["chat-item-avatar"], "no-dark")}>
@@ -85,17 +149,7 @@ export function ChatItem(props: {
               </div>
             </>
           )}
-
-          <div
-            className={styles["chat-item-delete"]}
-            onClickCapture={(e) => {
-              props.onDelete?.();
-              e.preventDefault();
-              e.stopPropagation();
-            }}
-          >
-            <DeleteIcon />
-          </div>
+          {/* The old delete icon is removed from here */}
         </div>
       )}
     </Draggable>
@@ -110,6 +164,7 @@ export function ChatList(props: { narrow?: boolean }) {
       state.selectSession,
       state.moveSession,
     ],
+    shallow,
   );
   const chatStore = useChatStore();
   const navigate = useNavigate();
