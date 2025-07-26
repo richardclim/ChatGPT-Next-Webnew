@@ -1,6 +1,6 @@
 import KebabMenuIcon from "../icons/kebab-menu.svg";
 import { IconButton } from "./button";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useTransition } from "react";
 import { shallow } from "zustand/shallow";
 import styles from "./home.module.scss";
 import {
@@ -10,6 +10,7 @@ import {
   OnDragEndResponder,
 } from "@hello-pangea/dnd";
 
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatStore } from "../store";
 import Locale from "../locales";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -32,6 +33,7 @@ export function ChatItem(props: {
   index: number;
   narrow?: boolean;
   mask: Mask;
+  style?: React.CSSProperties;
 }) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -97,6 +99,10 @@ export function ChatItem(props: {
           }}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
+          style={{
+            ...provided.draggableProps.style,
+            ...props.style,
+          }}
           title={`${props.title}\n${Locale.ChatItem.ChatItemCount(
             props.count,
           )}`}
@@ -156,20 +162,82 @@ export function ChatItem(props: {
   );
 }
 
-export function ChatList(props: { narrow?: boolean }) {
-  const [sessions, selectedIndex, selectSession, moveSession] = useChatStore(
-    (state) => [
-      state.sessions,
-      state.currentSessionIndex,
-      state.selectSession,
-      state.moveSession,
-    ],
-    shallow,
+function ChatListSkeleton(props: { narrow?: boolean }) {
+  return (
+    <div className={styles["chat-list"]}>
+      {Array.from({ length: 35 }).map((_, i) => (
+        <div key={i} className={clsx(styles["chat-item"], styles["skeleton"])}>
+          {props.narrow ? (
+            <div
+              className={clsx(
+                styles["chat-item-narrow"],
+                styles["chat-item-narrow-skeleton"],
+              )}
+            >
+              <div
+                className={clsx(
+                  styles["chat-item-avatar"],
+                  styles["skeleton-avatar"],
+                )}
+              ></div>
+            </div>
+          ) : (
+            <>
+              <div
+                className={clsx(
+                  styles["chat-item-title"],
+                  styles["skeleton-title"],
+                )}
+              ></div>
+              <div
+                className={clsx(
+                  styles["chat-item-info"],
+                  styles["skeleton-info"],
+                )}
+              ></div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
   );
+}
+
+export function ChatList(props: {
+  narrow?: boolean;
+  scrollRef: React.RefObject<HTMLDivElement>;
+}) {
+  const { sessions, selectedIndex, selectSession, moveSession, hasHydrated } =
+    useChatStore(
+      (state) => ({
+        sessions: state.sessions,
+        selectedIndex: state.currentSessionIndex,
+        selectSession: state.selectSession,
+        moveSession: state.moveSession,
+        hasHydrated: state._hasHydrated,
+      }),
+      shallow,
+    );
   const chatStore = useChatStore();
   const navigate = useNavigate();
   const isMobileScreen = useMobileScreen();
+  const [isPending, startTransition] = useTransition();
+  const [displayedSessions, setDisplayedSessions] = useState(sessions);
+  const dndContainerRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    startTransition(() => {
+      setDisplayedSessions(sessions);
+    });
+  }, [sessions]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: displayedSessions.length,
+    getScrollElement: () => props.scrollRef.current,
+    estimateSize: () => (props.narrow ? 10 : 78),
+    // cSpell:ignore overscan
+    overscan: 10,
+  });
   const onDragEnd: OnDragEndResponder = (result) => {
     const { destination, source } = result;
     if (!destination) {
@@ -185,6 +253,12 @@ export function ChatList(props: { narrow?: boolean }) {
 
     moveSession(source.index, destination.index);
   };
+  if (!hasHydrated || isPending) {
+    console.log(
+      `[ChatList Render] Rendering SKELETON because hasHydrated=${hasHydrated} or isPending=${isPending}.`,
+    );
+    return <ChatListSkeleton narrow={props.narrow} />;
+  }
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
@@ -192,34 +266,60 @@ export function ChatList(props: { narrow?: boolean }) {
         {(provided) => (
           <div
             className={styles["chat-list"]}
-            ref={provided.innerRef}
+            ref={(el) => {
+              dndContainerRef.current = el;
+              provided.innerRef(el);
+            }}
             {...provided.droppableProps}
           >
-            {sessions.map((item, i) => (
-              <ChatItem
-                title={item.topic}
-                time={new Date(item.lastUpdate).toLocaleString()}
-                count={item.messages.length}
-                key={item.id}
-                id={item.id}
-                index={i}
-                selected={i === selectedIndex}
-                onClick={() => {
-                  navigate(Path.Chat);
-                  selectSession(i);
-                }}
-                onDelete={async () => {
-                  if (
-                    (!props.narrow && !isMobileScreen) ||
-                    (await showConfirm(Locale.Home.DeleteChat))
-                  ) {
-                    chatStore.deleteSession(i);
-                  }
-                }}
-                narrow={props.narrow}
-                mask={item.mask}
-              />
-            ))}
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: "100%",
+                position: "relative",
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                const item = displayedSessions[virtualItem.index];
+                if (!item) return null;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: `${virtualItem.size}px`,
+                      transform: `translateY(${virtualItem.start}px)`,
+                    }}
+                  >
+                    <ChatItem
+                      title={item.topic}
+                      time={new Date(item.lastUpdate).toLocaleString()}
+                      count={item.messages.length}
+                      id={item.id}
+                      index={virtualItem.index}
+                      selected={virtualItem.index === selectedIndex}
+                      onClick={() => {
+                        navigate(Path.Chat);
+                        selectSession(virtualItem.index);
+                      }}
+                      onDelete={async () => {
+                        if (
+                          (!props.narrow && !isMobileScreen) ||
+                          (await showConfirm(Locale.Home.DeleteChat))
+                        ) {
+                          chatStore.deleteSession(virtualItem.index);
+                        }
+                      }}
+                      narrow={props.narrow}
+                      mask={item.mask}
+                    />
+                  </div>
+                );
+              })}
+            </div>
             {provided.placeholder}
           </div>
         )}

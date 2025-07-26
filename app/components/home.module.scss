@@ -440,6 +440,7 @@
   font-size: 14px;
   color: var(--black);
   border-radius: 6px;
+  gap: 10px;
 }
 
 .chat-item-menu-popup-button:hover {
@@ -447,8 +448,6 @@
 }
 
 .chat-item-menu-popup-button svg {
-  /* Style for icons within the menu button */
-  gap: 10px;
   opacity: 0.7;
   width: 16px;
   height: 16px;
@@ -509,3 +508,40 @@
     }
   }
 }
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.chat-item.skeleton {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  pointer-events: none;
+  user-select: none;
+  height: 35px;
+}
+/* 
+.skeleton-title {
+}
+
+.skeleton-info {
+}
+
+.chat-item-narrow-skeleton {
+}
+
+.skeleton-avatar {
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+*/

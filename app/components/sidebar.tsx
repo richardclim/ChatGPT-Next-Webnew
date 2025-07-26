@@ -201,10 +201,15 @@ export function SideBarHeader(props: {
 export function SideBarBody(props: {
   children: React.ReactNode;
   onClick?: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
+  scrollRef?: React.RefObject<HTMLDivElement>;
 }) {
   const { onClick, children } = props;
   return (
-    <div className={styles["sidebar-body"]} onClick={onClick}>
+    <div
+      className={styles["sidebar-body"]}
+      ref={props.scrollRef}
+      onClick={onClick}
+    >
       {children}
     </div>
   );
@@ -232,6 +237,7 @@ export function SideBar(props: { className?: string }) {
   const config = useAppConfig();
   const chatStore = useChatStore();
   const [mcpEnabled, setMcpEnabled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // 检查 MCP 是否启用
@@ -306,13 +312,14 @@ export function SideBar(props: { className?: string }) {
         )}
       </SideBarHeader>
       <SideBarBody
+        scrollRef={scrollRef}
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             navigate(Path.Home);
           }
         }}
       >
-        <ChatList narrow={shouldNarrow} />
+        <ChatList narrow={shouldNarrow} scrollRef={scrollRef} />
       </SideBarBody>
       <SideBarTail
         primaryAction={
