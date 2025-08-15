@@ -5,6 +5,7 @@ import {
   trimTopic,
 } from "../utils";
 
+import { shallow } from "zustand/shallow";
 import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
 import { nanoid } from "nanoid";
 import type {
@@ -960,11 +961,21 @@ export const useChatStore = createPersistStore(
         targetSession: ChatSession,
         updater: (session: ChatSession) => void,
       ) {
-        const sessions = get().sessions;
-        const index = sessions.findIndex((s) => s.id === targetSession.id);
-        if (index < 0) return;
-        updater(sessions[index]);
-        set(() => ({ sessions }));
+        set((state) => {
+          const index = state.sessions.findIndex(
+            (s) => s.id === targetSession.id,
+          );
+          if (index < 0) return state;
+
+          const newSessions = [...state.sessions];
+          const sessionToUpdate = { ...newSessions[index] };
+          updater(sessionToUpdate);
+          if (shallow(sessionToUpdate, state.sessions[index])) {
+            return state;
+          }
+          newSessions[index] = sessionToUpdate;
+          return { sessions: newSessions };
+        });
       },
       async clearAllData() {
         await indexedDBStorage.clear();
