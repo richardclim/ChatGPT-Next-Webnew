@@ -1,6 +1,6 @@
 import KebabMenuIcon from "../icons/kebab-menu.svg";
 import { IconButton } from "./button";
-import React, { useState, useEffect, useRef, useTransition } from "react";
+import React, { useState, useEffect, useRef, useTransition, memo } from "react";
 import { shallow } from "zustand/shallow";
 import styles from "./home.module.scss";
 import {
@@ -22,7 +22,7 @@ import { useMobileScreen } from "../utils";
 import clsx from "clsx";
 import PinIcon from "../icons/pin.svg";
 
-export function ChatItem(props: {
+interface ChatItemProps {
   onClick?: () => void;
   onDelete?: () => void;
   title: string;
@@ -34,32 +34,47 @@ export function ChatItem(props: {
   narrow?: boolean;
   mask: Mask;
   style?: React.CSSProperties;
-}) {
+  isPinned: boolean;
+}
+
+const ChatItem = memo(function ChatItem({
+  onClick,
+  onDelete,
+  title,
+  count,
+  time,
+  selected,
+  id,
+  index,
+  narrow,
+  mask,
+  style,
+  isPinned,
+}: ChatItemProps) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
-  const { isMenuOpen, menuSessionId, openMenu, closeMenu, isPinned } =
-    useChatStore(
-      (state) => ({
-        openMenu: state.openMenu,
-        closeMenu: state.closeMenu,
-        isMenuOpen: state.isMenuOpen,
-        menuSessionId: state.menuSessionId,
-        isPinned:
-          state.sessions.find((s) => s.id === props.id)?.pinned ?? false,
-      }),
-      shallow,
-    );
+
+  const { openMenu, closeMenu } = useChatStore(
+    (state) => ({
+      openMenu: state.openMenu,
+      closeMenu: state.closeMenu,
+    }),
+    shallow,
+  );
+  const isMenuOpen = useChatStore(
+    (state) => state.isMenuOpen && state.menuSessionId === id,
+  );
   const [isAnimatingPin, setIsAnimatingPin] = useState(false);
   const [isAnimatingUnpin, setIsAnimatingUnpin] = useState(false);
   const prevPinnedStatusRef = useRef(isPinned);
 
   useEffect(() => {
-    if (props.selected && draggableRef.current) {
+    if (selected && draggableRef.current) {
       draggableRef.current?.scrollIntoView({
         block: "center",
       });
     }
-  }, [props.selected]);
+  }, [selected]);
 
   useEffect(() => {
     const currentPinnedStatus = isPinned;
@@ -79,18 +94,18 @@ export function ChatItem(props: {
 
   const { pathname: currentPath } = useLocation();
   return (
-    <Draggable draggableId={`${props.id}`} index={props.index}>
+    <Draggable draggableId={`${id}`} index={index}>
       {(provided) => (
         <div
           className={clsx(styles["chat-item"], {
             [styles["chat-item-selected"]]:
-              props.selected &&
+              selected &&
               (currentPath === Path.Chat || currentPath === Path.Home),
             [styles["chat-item-pinned"]]: isPinned,
             [styles["chat-item-animating-pin"]]: isAnimatingPin,
             [styles["chat-item-animating-unpin"]]: isAnimatingUnpin,
           })}
-          onClick={props.onClick}
+          onClick={onClick}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
           ref={(ele) => {
@@ -101,23 +116,21 @@ export function ChatItem(props: {
           {...provided.dragHandleProps}
           style={{
             ...provided.draggableProps.style,
-            ...props.style,
+            ...style,
           }}
-          title={`${props.title}\n${Locale.ChatItem.ChatItemCount(
-            props.count,
-          )}`}
+          title={`${title}\n${Locale.ChatItem.ChatItemCount(count)}`}
         >
-          {!props.narrow && (
+          {!narrow && (
             <div
               className={styles["chat-item-menu-icon-container"]}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (isMenuOpen && menuSessionId === props.id) {
+                if (isMenuOpen) {
                   closeMenu();
                 } else {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  openMenu(props.id, {
+                  openMenu(id, {
                     top: rect.top - 21,
                     left: rect.left + 33,
                   });
@@ -132,26 +145,24 @@ export function ChatItem(props: {
               />
             </div>
           )}
-          {props.narrow ? (
+          {narrow ? (
             <div className={styles["chat-item-narrow"]}>
               <div className={clsx(styles["chat-item-avatar"], "no-dark")}>
                 <MaskAvatar
-                  avatar={props.mask.avatar}
-                  model={props.mask.modelConfig.model}
+                  avatar={mask.avatar}
+                  model={mask.modelConfig.model}
                 />
               </div>
-              <div className={styles["chat-item-narrow-count"]}>
-                {props.count}
-              </div>
+              <div className={styles["chat-item-narrow-count"]}>{count}</div>
             </div>
           ) : (
             <>
-              <div className={styles["chat-item-title"]}>{props.title}</div>
+              <div className={styles["chat-item-title"]}>{title}</div>
               <div className={styles["chat-item-info"]}>
                 <div className={styles["chat-item-count"]}>
-                  {Locale.ChatItem.ChatItemCount(props.count)}
+                  {Locale.ChatItem.ChatItemCount(count)}
                 </div>
-                <div className={styles["chat-item-date"]}>{props.time}</div>
+                <div className={styles["chat-item-date"]}>{time}</div>
               </div>
             </>
           )}
@@ -160,14 +171,14 @@ export function ChatItem(props: {
       )}
     </Draggable>
   );
-}
+});
 
-function ChatListSkeleton(props: { narrow?: boolean }) {
+function ChatListSkeleton({ narrow }: { narrow?: boolean }) {
   return (
     <div className={styles["chat-list"]}>
       {Array.from({ length: 35 }).map((_, i) => (
         <div key={i} className={clsx(styles["chat-item"], styles["skeleton"])}>
-          {props.narrow ? (
+          {narrow ? (
             <div
               className={clsx(
                 styles["chat-item-narrow"],
@@ -203,7 +214,10 @@ function ChatListSkeleton(props: { narrow?: boolean }) {
   );
 }
 
-export function ChatList(props: {
+export function ChatList({
+  narrow,
+  scrollRef,
+}: {
   narrow?: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
 }) {
@@ -233,8 +247,8 @@ export function ChatList(props: {
 
   const rowVirtualizer = useVirtualizer({
     count: displayedSessions.length,
-    getScrollElement: () => props.scrollRef.current,
-    estimateSize: () => (props.narrow ? 10 : 78),
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => (narrow ? 10 : 78),
     // cSpell:ignore overscan
     overscan: 10,
   });
@@ -257,7 +271,7 @@ export function ChatList(props: {
     console.log(
       `[ChatList Render] Rendering SKELETON because hasHydrated=${hasHydrated} or isPending=${isPending}.`,
     );
-    return <ChatListSkeleton narrow={props.narrow} />;
+    return <ChatListSkeleton narrow={narrow} />;
   }
 
   return (
@@ -307,14 +321,15 @@ export function ChatList(props: {
                       }}
                       onDelete={async () => {
                         if (
-                          (!props.narrow && !isMobileScreen) ||
+                          (!narrow && !isMobileScreen) ||
                           (await showConfirm(Locale.Home.DeleteChat))
                         ) {
                           chatStore.deleteSession(virtualItem.index);
                         }
                       }}
-                      narrow={props.narrow}
+                      narrow={narrow}
                       mask={item.mask}
+                      isPinned={item.pinned ?? false}
                     />
                   </div>
                 );
