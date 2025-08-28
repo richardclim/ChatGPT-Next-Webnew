@@ -961,21 +961,11 @@ export const useChatStore = createPersistStore(
         targetSession: ChatSession,
         updater: (session: ChatSession) => void,
       ) {
-        set((state) => {
-          const index = state.sessions.findIndex(
-            (s) => s.id === targetSession.id,
-          );
-          if (index < 0) return state;
-
-          const newSessions = [...state.sessions];
-          const sessionToUpdate = { ...newSessions[index] };
-          updater(sessionToUpdate);
-          if (shallow(sessionToUpdate, state.sessions[index])) {
-            return state;
-          }
-          newSessions[index] = sessionToUpdate;
-          return { sessions: newSessions };
-        });
+        const sessions = get().sessions;
+        const index = sessions.findIndex((s) => s.id === targetSession.id);
+        if (index < 0) return;
+        updater(sessions[index]);
+        set(() => ({ sessions }));
       },
       async clearAllData() {
         await indexedDBStorage.clear();
