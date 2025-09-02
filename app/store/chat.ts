@@ -65,6 +65,7 @@ export type ChatMessage = RequestMessage & {
   audio_url?: string;
   isMcpResponse?: boolean;
   isPasted?: boolean;
+  gpt5PrevId?: string;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -611,11 +612,15 @@ export const useChatStore = createPersistStore(
               session.messages = session.messages.concat();
             });
           },
-          async onFinish(message) {
+          async onFinish(message, res, gpt5PrevId?) {
             botMessage.streaming = false;
             if (message) {
               botMessage.content = message;
               botMessage.date = new Date().toLocaleString();
+
+              if (gpt5PrevId) {
+                botMessage.gpt5PrevId = gpt5PrevId;
+              }
               get().onNewMessage(botMessage, session);
             }
             ChatControllerPool.remove(session.id, botMessage.id);

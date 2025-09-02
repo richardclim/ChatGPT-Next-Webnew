@@ -54,20 +54,36 @@ export interface OpenAIListModelResponse {
   }>;
 }
 
-export interface RequestPayload {
+export interface BaseRequest {
+  stream?: boolean;
+  model: string;
+  temperature?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+  top_p: number;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+}
+export interface RequestPayload extends BaseRequest {
   messages: {
     role: "developer" | "system" | "user" | "assistant";
     content: string | MultimodalContent[];
   }[];
-  stream?: boolean;
-  model: string;
-  temperature: number;
-  presence_penalty: number;
-  frequency_penalty: number;
-  top_p: number;
-  max_tokens?: number;
-  max_completion_tokens?: number;
   include_reasoning?: boolean;
+}
+
+export interface ResponseRequestPayload extends BaseRequest {
+  input: any;
+  reasoning: {
+    effort: "minimal" | "medium" | "high";
+    summary: "auto";
+  };
+  text: {
+    verbosity: "low" | "medium" | "high";
+  };
+  store?: boolean;
+  previous_response_id?: string;
+  max_output_tokens?: number;
 }
 
 export interface DalleRequestPayload {
@@ -82,6 +98,8 @@ export interface DalleRequestPayload {
 
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
+
+  private gpt5PrevIdBySession = new Map<string, string>();
 
   path(path: string): string {
     const accessStore = useAccessStore.getState();
@@ -143,6 +161,26 @@ export class ChatGPTApi implements LLMApi {
         },
       ];
     }
+
+    // Responses API (gpt-5): res.object === "response" and content is in output[*].content[*].text
+    if (res.object === "response" && Array.isArray(res.output)) {
+      const msg =
+        res.output.find(
+          (o: any) => o.type === "message" && o.role === "assistant",
+        ) ?? res.output.find((o: any) => o.type === "message");
+      if (msg?.content) {
+        const text = msg.content
+          .filter(
+            (c: any) =>
+              c?.type === "output_text" && typeof c?.text === "string",
+          )
+          .map((c: any) => c.text)
+          .join("");
+        return text ?? "";
+      }
+      return "";
+    }
+
     return res.choices?.at(0)?.message?.content ?? res;
   }
 
@@ -194,14 +232,17 @@ export class ChatGPTApi implements LLMApi {
       },
     };
 
-    let requestPayload: RequestPayload | DalleRequestPayload;
+    let requestPayload:
+      | RequestPayload
+      | DalleRequestPayload
+      | ResponseRequestPayload;
 
     const isDalle3 = _isDalle3(options.config.model);
     const isO1OrO3 =
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
       options.config.model.startsWith("o4-mini");
-    const isGpt5 =  options.config.model.startsWith("gpt-5");
+    const isGpt5 = options.config.model.startsWith("gpt-5");
     if (isDalle3) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
@@ -217,53 +258,81 @@ export class ChatGPTApi implements LLMApi {
         style: options.config?.style ?? "vivid",
       };
     } else {
-      const visionModel = isVisionModel(options.config.model);
-      const messages: ChatOptions["messages"] = [];
-      for (const v of options.messages) {
-        const content = visionModel
-          ? await preProcessImageContent(v.content)
-          : getMessageTextContent(v);
-        if (!(isO1OrO3 && v.role === "system"))
-          messages.push({ role: v.role, content });
-      }
-
-      // O1 not support image, tools (plugin in ChatGPTNextWeb) and system, stream, logprobs, temperature, top_p, n, presence_penalty, frequency_penalty yet.
-      requestPayload = {
-        messages,
-        stream: options.config.stream,
-        model: modelConfig.model,
-        temperature: (!isO1OrO3 && !isGpt5) ? modelConfig.temperature : 1,
-        presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
-        frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
-        top_p: !isO1OrO3 ? modelConfig.top_p : 1,
-        ...(modelConfig.providerName !== ServiceProvider.Azure && {include_reasoning: true}),
-        // max_tokens: Math.max(modelConfig.max_tokens, 1024),
-        // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
-      };
-
       if (isGpt5) {
-  	// Remove max_tokens if present
-  	delete requestPayload.max_tokens;
-  	// Add max_completion_tokens (or max_completion_tokens if that's what you meant)
-  	requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
+        const session = useChatStore.getState().currentSession();
+        const sessionId = session?.id as string;
 
-      } else if (isO1OrO3) {
-        // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
-        // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
-        // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
-        requestPayload["messages"].unshift({
-          role: "developer",
-          content: "Formatting re-enabled",
-        });
+        const lastMsg = options.messages.slice(-1)[0];
+        const lastMsgText = getMessageTextContent(lastMsg);
 
-        // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
-        requestPayload["max_completion_tokens"] = modelConfig.max_tokens;
-      }
+        // const prevId = this.gpt5PrevIdBySession.get(sessionId);
+        const prevId = [...session.messages].reverse().find((m) => m.gpt5PrevId)
+          ?.gpt5PrevId;
 
+        requestPayload = {
+          stream: options.config.stream,
+          model: modelConfig.model,
+          //temperature: modelConfig.temperature,
+          //presence_penalty: modelConfig.presence_penalty,
+          //frequency_penalty: modelConfig.frequency_penalty,
+          top_p: modelConfig.top_p,
+          input: [
+            // only send latest user turn; rely on previous_response_id for history
+            { role: lastMsg.role, content: lastMsgText },
+          ],
+          reasoning: {
+            effort: "high",
+            summary: "auto",
+          },
+          text: {
+            verbosity: "high",
+          },
+          // max_output_tokens: modelConfig.max_tokens,
+          store: true,
+          ...(prevId ? { previous_response_id: prevId } : {}),
+        };
+      } else {
+        const visionModel = isVisionModel(options.config.model);
+        const messages: ChatOptions["messages"] = [];
+        for (const v of options.messages) {
+          const content = visionModel
+            ? await preProcessImageContent(v.content)
+            : getMessageTextContent(v);
+          if (!(isO1OrO3 && v.role === "system"))
+            messages.push({ role: v.role, content });
+        }
 
-      // add max_tokens to vision model
-      if (visionModel && !isO1OrO3 && ! isGpt5) {
-        requestPayload["max_tokens"] = Math.max(modelConfig.max_tokens, 4000);
+        const payload: RequestPayload = {
+          messages,
+          stream: options.config.stream,
+          model: modelConfig.model,
+          temperature: !isO1OrO3 ? modelConfig.temperature : 1,
+          presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
+          frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
+          top_p: !isO1OrO3 ? modelConfig.top_p : 1,
+          ...(modelConfig.providerName == ServiceProvider.Anthropic && {
+            include_reasoning: true,
+          }),
+        };
+
+        if (isO1OrO3) {
+          // by default the o1/o3 models will not attempt to produce output that includes markdown formatting
+          // manually add "Formatting re-enabled" developer message to encourage markdown inclusion in model responses
+          // (https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/reasoning?tabs=python-secure#markdown-output)
+          payload.messages.unshift({
+            role: "developer",
+            content: "Formatting re-enabled",
+          });
+
+          // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
+          payload.max_completion_tokens = modelConfig.max_tokens;
+        }
+
+        // add max_tokens to vision model
+        if (visionModel && !isO1OrO3) {
+          payload.max_tokens = Math.max(modelConfig.max_tokens, 4000);
+        }
+        requestPayload = payload;
       }
     }
 
@@ -300,6 +369,8 @@ export class ChatGPTApi implements LLMApi {
             useCustomConfig ? useAccessStore.getState().azureApiVersion : "",
           ),
         );
+      } else if (isGpt5) {
+        chatPath = this.path(OpenaiPath.ResponsePath);
       } else {
         chatPath = this.path(
           isDalle3 ? OpenaiPath.ImagePath : OpenaiPath.ChatPath,
@@ -312,6 +383,133 @@ export class ChatGPTApi implements LLMApi {
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
           );
+
+        // separate SSE parsers for gpt-5 vs others
+        const session = useChatStore.getState().currentSession();
+        const sessionId = session?.id as string;
+
+        let nextPrevId: string | undefined;
+
+        const parseCompletionsSSE = (
+          text: string,
+          runTools: ChatMessageTool[],
+        ) => {
+          const json = JSON.parse(text);
+          const choices = json.choices as Array<{
+            delta: {
+              content: string;
+              tool_calls: ChatMessageTool[];
+              reasoning_content?: string | null;
+              reasoning?: string | null;
+            };
+          }>;
+
+          if (!choices?.length) return { isThinking: false, content: "" };
+
+          const tool_calls = choices[0]?.delta?.tool_calls;
+          if (tool_calls?.length > 0) {
+            const id = tool_calls[0]?.id;
+            const args = tool_calls[0]?.function?.arguments;
+            if (id) {
+              index += 1;
+              runTools.push({
+                id,
+                type: tool_calls[0]?.type,
+                function: {
+                  name: tool_calls[0]?.function?.name as string,
+                  arguments: args,
+                },
+              });
+            } else {
+              // @ts-ignore
+              runTools[index]["function"]["arguments"] += args;
+            }
+          }
+
+          const reasoning =
+            choices[0]?.delta?.reasoning ||
+            choices[0]?.delta?.reasoning_content;
+          const content = choices[0]?.delta?.content;
+
+          if (
+            (!reasoning || reasoning.length === 0) &&
+            (!content || content.length === 0)
+          ) {
+            return { isThinking: false, content: "" };
+          }
+
+          if (reasoning && reasoning.length > 0) {
+            return { isThinking: true, content: reasoning };
+          } else if (content && content.length > 0) {
+            return { isThinking: false, content };
+          }
+          return { isThinking: false, content: "" };
+        };
+
+        const parseGpt5SSE = (text: string) => {
+          // Responses API streaming events
+          const json = JSON.parse(text);
+
+          // capture final id on completion
+          if (
+            (json.type === "response.completed" ||
+              json.event === "response.completed") &&
+            (json.response?.id || json.id)
+          ) {
+            nextPrevId = json.response?.id || json.id;
+            return { isThinking: false, content: "" };
+          }
+
+          // reasoning deltas
+          if (
+            json.type === "response.reasoning_summary_text.delta" &&
+            typeof json.delta === "string"
+          ) {
+            return { isThinking: true, content: json.delta };
+          }
+
+          // text deltas
+          if (
+            json.type === "response.output_text.delta" &&
+            typeof json.delta === "string"
+          ) {
+            return { isThinking: false, content: json.delta };
+          }
+
+          // sometimes a non-delta (non streaming) complete or consolidated output chunk.
+          if (Array.isArray(json.output)) {
+            const msg = json.output.find((o: any) => o.type === "message");
+            if (msg?.content) {
+              const text = msg.content
+                .filter(
+                  (c: any) =>
+                    c?.type === "output_text" && typeof c?.text === "string",
+                )
+                .map((c: any) => c.text)
+                .join("");
+              if (text) return { isThinking: false, content: text };
+            }
+          }
+
+          return { isThinking: false, content: "" };
+        };
+
+        const parseSSE = isGpt5
+          ? (text: string, _runTools: ChatMessageTool[]) => parseGpt5SSE(text)
+          : parseCompletionsSSE;
+
+        // wrap onFinish to stash the response id for gpt-5
+        const originalOnFinish = options.onFinish;
+        const wrappedOptions = {
+          ...options,
+          onFinish: (message: any, res: any) => {
+            if (isGpt5 && nextPrevId) {
+              originalOnFinish?.(message, res, nextPrevId);
+            }
+            originalOnFinish?.(message, res);
+          },
+        };
+
         // console.log("getAsTools", tools, funcs);
         streamWithThink(
           chatPath,
@@ -320,73 +518,7 @@ export class ChatGPTApi implements LLMApi {
           tools as any,
           funcs,
           controller,
-          // parseSSE
-          (text: string, runTools: ChatMessageTool[]) => {
-            // console.log("parseSSE", text, runTools);
-            const json = JSON.parse(text);
-            const choices = json.choices as Array<{
-              delta: {
-                content: string;
-                tool_calls: ChatMessageTool[];
-                reasoning_content?: string | null;
-                reasoning?: string | null;
-              };
-            }>;
-
-            if (!choices?.length) return { isThinking: false, content: "" };
-
-            const tool_calls = choices[0]?.delta?.tool_calls;
-            if (tool_calls?.length > 0) {
-              const id = tool_calls[0]?.id;
-              const args = tool_calls[0]?.function?.arguments;
-              if (id) {
-                index += 1;
-                runTools.push({
-                  id,
-                  type: tool_calls[0]?.type,
-                  function: {
-                    name: tool_calls[0]?.function?.name as string,
-                    arguments: args,
-                  },
-                });
-              } else {
-                // @ts-ignore
-                runTools[index]["function"]["arguments"] += args;
-              }
-            }
-
-            const reasoning = choices[0]?.delta?.reasoning || choices[0]?.delta?.reasoning_content;
-            const content = choices[0]?.delta?.content;
-
-            // Skip if both content and reasoning_content are empty or null
-            if (
-              (!reasoning || reasoning.length === 0) &&
-              (!content || content.length === 0)
-            ) {
-              return {
-                isThinking: false,
-                content: "",
-              };
-            }
-
-            if (reasoning && reasoning.length > 0) {
-              return {
-                isThinking: true,
-                content: reasoning,
-              };
-            } else if (content && content.length > 0) {
-              return {
-                isThinking: false,
-                content: content,
-              };
-            }
-
-            return {
-              isThinking: false,
-              content: "",
-            };
-          },
-          // processToolMessage, include tool_calls message and tool call results
+          parseSSE,
           (
             requestPayload: RequestPayload,
             toolCallMessage: any,
@@ -403,7 +535,7 @@ export class ChatGPTApi implements LLMApi {
               ...toolCallResult,
             );
           },
-          options,
+          wrappedOptions,
         );
       } else {
         const chatPayload = {
@@ -423,8 +555,10 @@ export class ChatGPTApi implements LLMApi {
         clearTimeout(requestTimeoutId);
 
         const resJson = await res.json();
+        const newGpt5Id = isGpt5 && resJson?.id ? resJson.id : undefined;
+
         const message = await this.extractMessage(resJson);
-        options.onFinish(message, res);
+        options.onFinish(message, res, newGpt5Id);
       }
     } catch (e) {
       console.log("[Request] failed to make a chat request", e);

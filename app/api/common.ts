@@ -9,30 +9,29 @@ const serverConfig = getServerSideConfig();
 export async function requestOpenai(req: NextRequest) {
   const controller = new AbortController();
 
-console.log("[pathname: Azure?]", req.nextUrl.pathname);
-const isAzure = req.nextUrl.pathname.includes("azure/deployments");
-  //|| Boolean(serverConfig.azureUrl && serverConfig.azureUrl.includes(".models.ai.azure.com"))
+  const isAzure = req.nextUrl.pathname.includes("azure/deployments");
+
   var authValue,
     authHeaderName = "";
   if (isAzure) {
-    authValue = `Bearer ${req.headers
-      .get("Authorization")
-      ?.trim()
-      .replaceAll("Bearer ", "")
-      .trim() ?? ""}`;
-    authHeaderName = "Authorization";
+    authValue =
+      req.headers
+        .get("Authorization")
+        ?.trim()
+        .replaceAll("Bearer ", "")
+        .trim() ?? "";
+
+    authHeaderName = "api-key";
   } else {
     authValue = req.headers.get("Authorization") ?? "";
     authHeaderName = "Authorization";
   }
-  
-// Add debug logs
-console.log("[Auth Header Name]", authHeaderName);
-console.log("[Auth Value Present]", !!authValue);
 
   let path = `${req.nextUrl.pathname}`.replaceAll("/api/openai/", "");
+
   let baseUrl =
     (isAzure ? serverConfig.azureUrl : serverConfig.baseUrl) || OPENAI_BASE_URL;
+
   if (!baseUrl.startsWith("http")) {
     baseUrl = `https://${baseUrl}`;
   }
@@ -52,30 +51,15 @@ console.log("[Auth Value Present]", !!authValue);
   );
 
   if (isAzure) {
-    console.log("[Original Path: azure check]", req.nextUrl.pathname);  // Log initial path
     const azureApiVersion =
       req?.nextUrl?.searchParams?.get("api-version") ||
       serverConfig.azureApiVersion;
-      const isAIFoundation = baseUrl.includes(".models.ai.azure.com");
-    console.log("[Is AI Foundation]", isAIFoundation);
-      if (isAIFoundation) {
-        path = "chat/completions";
-     /* path = req.nextUrl.pathname
-        .replace("/api/azure/openai/", "")
-        .replace("/deployments/", "")
-        .split("/")
-        .slice(-2)
-        .join("/");
-      */
-      } else {
-        baseUrl = baseUrl.split("/deployments").shift() as string;
-        path = `${req.nextUrl.pathname.replaceAll(
-          "/api/azure/",
-          "",
-        )}?api-version=${azureApiVersion}`;
-        console.log("[Azure OpenAI Path]", path); 
-          }
-        
+    baseUrl = baseUrl.split("/deployments").shift() as string;
+    path = `${req.nextUrl.pathname.replaceAll(
+      "/api/azure/",
+      "",
+    )}?api-version=${azureApiVersion}`;
+
     // Forward compatibility:
     // if display_name(deployment_name) not set, and '{deploy-id}' in AZURE_URL
     // then using default '{deploy-id}'
@@ -101,8 +85,7 @@ console.log("[Auth Value Present]", !!authValue);
         console.log("[Replace with DeployId", realDeployName);
         path = path.replaceAll(modelName, realDeployName);
       }
-      }
-        console.log("[Final Path]", path);
+    }
   }
 
   const fetchUrl = cloudflareAIGatewayUrl(`${baseUrl}/${path}`);
@@ -124,7 +107,7 @@ console.log("[Auth Value Present]", !!authValue);
     duplex: "half",
     signal: controller.signal,
   };
-console.log("[Request Headers]", fetchOptions.headers);
+
   // #1815 try to refuse gpt4 request
   if (serverConfig.customModels && req.body) {
     try {
