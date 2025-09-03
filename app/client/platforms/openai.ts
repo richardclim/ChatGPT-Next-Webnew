@@ -99,8 +99,6 @@ export interface DalleRequestPayload {
 export class ChatGPTApi implements LLMApi {
   private disableListModels = true;
 
-  private gpt5PrevIdBySession = new Map<string, string>();
-
   path(path: string): string {
     const accessStore = useAccessStore.getState();
 

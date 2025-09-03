@@ -142,6 +142,12 @@ export class GeminiProApi implements LLMApi {
     // }
 
     const accessStore = useAccessStore.getState();
+    const apiKey = accessStore.googleApiKey;
+    // this fixes gemini as summary model when current model is different. getHeaders() uses chatStore.currentSession() for the summary model which will not work if the summary model is from a different provider. This should apply to server side api key usage. If client side api is empty, server side code will default to using api key from the server.
+    const googleHeaders = {
+      "Content-Type": "application/json",
+      "x-goog-api-key": apiKey, // Use the correct key and header name
+    };
 
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
@@ -205,7 +211,7 @@ export class GeminiProApi implements LLMApi {
         method: "POST",
         body: JSON.stringify(requestPayload),
         signal: controller.signal,
-        headers: getHeaders(),
+        headers: googleHeaders,
       };
 
       // make a fetch request
@@ -271,7 +277,7 @@ export class GeminiProApi implements LLMApi {
           return streamWithThink(
             chatPath,
             requestPayload,
-            getHeaders(),
+            googleHeaders,
             toolDeclarations,
             funcs,
             controller,
@@ -312,7 +318,7 @@ export class GeminiProApi implements LLMApi {
         return stream(
           chatPath,
           requestPayload,
-          getHeaders(),
+          googleHeaders,
           toolDeclarations,
           funcs,
           controller,
