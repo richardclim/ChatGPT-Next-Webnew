@@ -8,6 +8,7 @@ import {
   Azure,
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
+  DEFAULT_SYSTEM_TEMPLATE,
 } from "@/app/constant";
 import {
   ChatMessageTool,
@@ -73,7 +74,7 @@ export interface RequestPayload extends BaseRequest {
 }
 
 export interface ResponseRequestPayload extends BaseRequest {
-  input: any;
+  input: string;
   reasoning: {
     effort: "minimal" | "medium" | "high";
     summary: "auto";
@@ -84,6 +85,7 @@ export interface ResponseRequestPayload extends BaseRequest {
   store?: boolean;
   previous_response_id?: string;
   max_output_tokens?: number;
+  instructions?: string;
 }
 
 export interface DalleRequestPayload {
@@ -270,14 +272,12 @@ export class ChatGPTApi implements LLMApi {
         requestPayload = {
           stream: options.config.stream,
           model: modelConfig.model,
-          //temperature: modelConfig.temperature,
-          //presence_penalty: modelConfig.presence_penalty,
-          //frequency_penalty: modelConfig.frequency_penalty,
           top_p: modelConfig.top_p,
-          input: [
-            // only send latest user turn; rely on previous_response_id for history
-            { role: lastMsg.role, content: lastMsgText },
-          ],
+          instructions: DEFAULT_SYSTEM_TEMPLATE,
+          // only send latest user turn; rely on previous_response_id for history
+          // using roles is only for when I need to manage the multi turn conversation manually.
+          // { role: lastMsg.role, content: lastMsgText },
+          input: lastMsgText,
           reasoning: {
             effort: "high",
             summary: "auto",
