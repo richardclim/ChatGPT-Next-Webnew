@@ -6,7 +6,12 @@ import {
 } from "../utils";
 
 import { shallow } from "zustand/shallow";
-import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
+import {
+  indexedDBStorage,
+  readPersistEnvelope,
+  PersistEnvelope,
+  attachStoragePingListener,
+} from "@/app/utils/indexedDB-storage";
 import { nanoid } from "nanoid";
 import type {
   ClientApi,
@@ -230,6 +235,22 @@ async function getMcpSystemPrompt(): Promise<string> {
   return MCP_SYSTEM_TEMPLATE.replace("{{ MCP_TOOLS }}", toolsStr);
 }
 
+function isPlaceholderSession(s: ChatSession): boolean {
+  return (
+    !!s &&
+    (s.messages?.length ?? 0) === 0 &&
+    s.topic === DEFAULT_TOPIC &&
+    !s.pinned &&
+    !s.memoryPrompt
+  );
+}
+
+function stripOnlyPlaceholder(sessions: ChatSession[]): ChatSession[] {
+  return sessions.length === 1 && isPlaceholderSession(sessions[0])
+    ? []
+    : sessions;
+}
+
 const DEFAULT_CHAT_STATE = {
   sessions: [createEmptySession()],
   currentSessionIndex: 0,
@@ -237,6 +258,9 @@ const DEFAULT_CHAT_STATE = {
   isMenuOpen: false,
   menuPosition: { top: 0, left: 0 },
   menuSessionId: null as string | null,
+  _rev: 0,
+  _inFlight: 0,
+  _pendingExternalHydrate: false,
 };
 
 function sortSessions(
@@ -264,6 +288,157 @@ function sortSessions(
 
   return { sortedSessions, newIndex };
 }
+
+const CHAT_TAB_ID_KEY = "chat_tab_id";
+const CHAT_TAB_ID = (() => {
+  try {
+    const v =
+      sessionStorage.getItem(CHAT_TAB_ID_KEY) ||
+      crypto.randomUUID?.() ||
+      Math.random().toString(36).slice(2);
+    sessionStorage.setItem(CHAT_TAB_ID_KEY, v);
+    return v;
+  } catch {
+    return Math.random().toString(36).slice(2);
+  }
+})();
+
+function toTs(dateStr?: string) {
+  if (!dateStr) return 0;
+  const t = Date.parse(dateStr);
+  return Number.isFinite(t) ? t : 0;
+}
+
+// Reconcile messages by id (prefer streaming from local; else newer date)
+function mergeMessages(
+  local: ChatMessage[],
+  remote: ChatMessage[],
+): ChatMessage[] {
+  const lm = new Map(local.map((m) => [m.id, m]));
+  const rm = new Map(remote.map((m) => [m.id, m]));
+  const ids = new Set<string>([...lm.keys(), ...rm.keys()]);
+  const merged: ChatMessage[] = [];
+  for (const id of ids) {
+    const a = lm.get(id);
+    const b = rm.get(id);
+    if (a && !b) {
+      merged.push(a);
+    } else if (!a && b) {
+      merged.push(b);
+    } else if (a && b) {
+      if (a.streaming && !b.streaming) {
+        merged.push(a);
+      } else if (!a.streaming && b.streaming) {
+        merged.push(a); // prefer finished local over remote streaming
+      } else {
+        // both finished or both non-streaming
+        merged.push(toTs(a.date) >= toTs(b.date) ? a : b);
+      }
+    }
+  }
+  // sort by date ascending
+  merged.sort((x, y) => toTs(x.date) - toTs(y.date));
+  return merged;
+}
+
+// Reconcile sessions by id; merge fields & messages
+function mergeSessions(
+  local: ChatSession[],
+  remote: ChatSession[],
+): ChatSession[] {
+  const ls = new Map(local.map((s) => [s.id, s]));
+  const result: ChatSession[] = [];
+
+  for (const R of remote) {
+    const L = ls.get(R.id);
+
+    if (!L) {
+      result.push(R);
+      continue;
+    }
+    const newer = (L.lastUpdate ?? 0) >= (R.lastUpdate ?? 0) ? L : R;
+    const messages = mergeMessages(L.messages, R.messages);
+
+    result.push({
+      ...newer,
+      messages,
+      pinned: (L.pinnedAt ?? 0) >= (R.pinnedAt ?? 0) ? L.pinned : R.pinned,
+      pinnedAt: Math.max(L.pinnedAt ?? 0, R.pinnedAt ?? 0) || null,
+      topic: (L.lastUpdate ?? 0) >= (R.lastUpdate ?? 0) ? L.topic : R.topic,
+      memoryPrompt:
+        (L.lastUpdate ?? 0) >= (R.lastUpdate ?? 0)
+          ? L.memoryPrompt
+          : R.memoryPrompt,
+      lastUpdate: Math.max(L.lastUpdate, R.lastUpdate),
+      lastSummarizeIndex: Math.max(
+        L.lastSummarizeIndex ?? 0,
+        R.lastSummarizeIndex ?? 0,
+      ),
+      clearContextIndex:
+        Math.max(L.clearContextIndex ?? 0, R.clearContextIndex ?? 0) ||
+        undefined,
+    });
+  }
+
+  return result;
+}
+
+// Merge whole chat store (excluding ephemeral UI fields)
+function reconcileChatStore(
+  localState: typeof DEFAULT_CHAT_STATE,
+  remoteState: typeof DEFAULT_CHAT_STATE,
+): typeof DEFAULT_CHAT_STATE {
+  if (!remoteState) return localState;
+
+  // Merge sessions
+  const mergedSessions = mergeSessions(
+    localState.sessions,
+    remoteState.sessions,
+  );
+
+  // Keep current session by id if possible
+  const currentId = localState.sessions[localState.currentSessionIndex]?.id;
+  const { sortedSessions, newIndex } = sortSessions(mergedSessions, currentId);
+
+  // Choose lastInput: prefer local (more recent UI input)
+  const lastInput = localState.lastInput || "";
+
+  return {
+    ...localState,
+    sessions: sortedSessions,
+    currentSessionIndex: newIndex,
+    lastInput,
+    isMenuOpen: localState.isMenuOpen,
+    menuPosition: localState.menuPosition,
+    menuSessionId: localState.menuSessionId,
+  };
+}
+
+// Filter persisted snapshot: remove streaming and ephemeral fields
+function partializeChatState(
+  s: typeof DEFAULT_CHAT_STATE,
+): typeof DEFAULT_CHAT_STATE {
+  const prunedSessions = s.sessions.map((sess) => ({
+    ...sess,
+    messages: sess.messages.filter((m) => !m.streaming),
+  }));
+
+  return {
+    ...s,
+    sessions: prunedSessions,
+    // DO NOT persist cross-tab fields (we set them on boot)
+    _rev: undefined as any,
+    _inFlight: undefined as any,
+    _pendingExternalHydrate: undefined as any,
+    // Per-tab UI state should not be persisted/synced across tabs
+    lastInput: undefined as any,
+    currentSessionIndex: undefined as any,
+    isMenuOpen: undefined as any,
+    menuPosition: undefined as any,
+    menuSessionId: undefined as any,
+  };
+}
+
 export const useChatStore = createPersistStore(
   DEFAULT_CHAT_STATE,
   (set, _get) => {
@@ -275,6 +450,74 @@ export const useChatStore = createPersistStore(
     }
 
     const methods = {
+      async rehydrateFromDiskAndMerge() {
+        const name = StoreKey.Chat;
+        const env = await readPersistEnvelope(name);
+        if (!env) return;
+
+        const persistedState = env.state as typeof DEFAULT_CHAT_STATE;
+        const rev = Number(env.rev || 0);
+
+        const current = _get() as any;
+        if (rev <= (current._rev || 0)) return;
+
+        // If the persisted portion of state is identical to our current persisted view,
+        // only bump _rev to avoid unnecessary set/persist cycles.
+        try {
+          const currentPersisted = partializeChatState(current as any);
+          if (
+            JSON.stringify(currentPersisted) === JSON.stringify(persistedState)
+          ) {
+            set((state) => ({ ...state, _rev: rev }));
+            return;
+          }
+        } catch {}
+
+        set((state) => {
+          const hasPersistedSessions =
+            Array.isArray(persistedState.sessions) &&
+            persistedState.sessions.length > 0;
+          const base = hasPersistedSessions
+            ? { ...state, sessions: stripOnlyPlaceholder(state.sessions ?? []) }
+            : state;
+          const merged = reconcileChatStore(base, persistedState);
+          return {
+            ...merged,
+            _rev: rev,
+          };
+        });
+      },
+
+      initCrossTabSync() {
+        const name = StoreKey.Chat;
+        // BroadcastChannel
+        const bc =
+          typeof window !== "undefined" && "BroadcastChannel" in window
+            ? new BroadcastChannel(`${name}:bc`)
+            : null;
+
+        const onExternalPersist = async (msg: any) => {
+          if (
+            !msg ||
+            msg.from === CHAT_TAB_ID ||
+            msg.type !== "persisted" ||
+            msg.key !== name
+          )
+            return;
+          const s = _get() as any;
+          if ((s._inFlight || 0) > 0) {
+            set({ _pendingExternalHydrate: true });
+            return;
+          }
+          await (get() as any).rehydrateFromDiskAndMerge();
+        };
+
+        bc?.addEventListener("message", (evt) => onExternalPersist(evt.data));
+
+        // Fallback to storage event for tabs without BroadcastChannel
+        attachStoragePingListener(name, onExternalPersist);
+      },
+
       openMenu(sessionId: string, position: { top: number; left: number }) {
         set({
           isMenuOpen: true,
@@ -538,139 +781,172 @@ export const useChatStore = createPersistStore(
         isPasted?: boolean, // Added isPasted parameter
       ) {
         const session = get().currentSession();
-        const modelConfig = session.mask.modelConfig;
+        // increment in-flight count when starting a new assistant stream
+        set((s) => ({ ...s, _inFlight: (s as any)._inFlight + 1 }));
+        try {
+          const modelConfig = session.mask.modelConfig;
 
-        // MCP Response no need to fill template
-        let mContent: string | MultimodalContent[] = isMcpResponse
-          ? content
-          : fillTemplateWith(content, modelConfig);
+          // MCP Response no need to fill template
+          let mContent: string | MultimodalContent[] = isMcpResponse
+            ? content
+            : fillTemplateWith(content, modelConfig);
 
-        if (!isMcpResponse && attachImages && attachImages.length > 0) {
-          mContent = [
-            ...(content ? [{ type: "text" as const, text: content }] : []),
-            ...attachImages.map((url) => ({
-              type: "image_url" as const,
-              image_url: { url },
-            })),
-          ];
-        }
+          if (!isMcpResponse && attachImages && attachImages.length > 0) {
+            mContent = [
+              ...(content ? [{ type: "text" as const, text: content }] : []),
+              ...attachImages.map((url) => ({
+                type: "image_url" as const,
+                image_url: { url },
+              })),
+            ];
+          }
 
-        let userMessage: ChatMessage = createMessage({
-          role: "user",
-          content: mContent,
-          isMcpResponse,
-          isPasted, // Pass isPasted to createMessage
-        });
-
-        // If message is pasted, add it to messages and return early.
-        if (userMessage.isPasted) {
-          get().updateTargetSession(session, (session) => {
-            session.messages = session.messages.concat([userMessage]);
-            session.lastUpdate = Date.now();
-          });
-          get().updateStat(userMessage, session);
-          // No bot message needed if user message is pasted and we are stopping here.
-          // Or, if it's a pasted response, both messages are created in chat.tsx.
-          // This early return prevents API call.
-          return;
-        }
-
-        const botMessage: ChatMessage = createMessage({
-          role: "assistant",
-          streaming: true,
-          model: modelConfig.model,
-        });
-
-        // get recent messages
-        const recentMessages = await get().getMessagesWithMemory();
-        const sendMessages = recentMessages.concat(userMessage);
-        const messageIndex = session.messages.length + 1;
-
-        // save user's and bot's message
-        get().updateTargetSession(session, (session) => {
-          const savedUserMessage = {
-            ...userMessage,
+          let userMessage: ChatMessage = createMessage({
+            role: "user",
             content: mContent,
-          };
-          session.messages = session.messages.concat([
-            savedUserMessage,
-            botMessage,
-          ]);
-        });
+            isMcpResponse,
+            isPasted, // Pass isPasted to createMessage
+          });
 
-        const api: ClientApi = getClientApi(modelConfig.providerName);
-        // make request
-        api.llm.chat({
-          messages: sendMessages,
-          config: { ...modelConfig, stream: true },
-          onUpdate(message) {
-            botMessage.streaming = true;
-            if (message) {
-              botMessage.content = message;
-            }
+          // If message is pasted, add it to messages and return early.
+          if (userMessage.isPasted) {
             get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
+              session.messages = session.messages.concat([userMessage]);
+              session.lastUpdate = Date.now();
             });
-          },
-          async onFinish(message, res, gpt5PrevId?) {
-            botMessage.streaming = false;
-            if (message) {
-              botMessage.content = message;
-              botMessage.date = new Date().toLocaleString();
+            get().updateStat(userMessage, session);
+            // No bot message needed if user message is pasted and we are stopping here.
+            // Or, if it's a pasted response, both messages are created in chat.tsx.
+            // This early return prevents API call.
+            return;
+          }
 
-              if (gpt5PrevId) {
-                botMessage.gpt5PrevId = gpt5PrevId;
+          const botMessage: ChatMessage = createMessage({
+            role: "assistant",
+            streaming: true,
+            model: modelConfig.model,
+          });
+
+          // get recent messages
+          const recentMessages = await get().getMessagesWithMemory();
+          const sendMessages = recentMessages.concat(userMessage);
+          const messageIndex = session.messages.length + 1;
+
+          // save user's and bot's message
+          get().updateTargetSession(session, (session) => {
+            const savedUserMessage = {
+              ...userMessage,
+              content: mContent,
+            };
+            session.messages = session.messages.concat([
+              savedUserMessage,
+              botMessage,
+            ]);
+          });
+
+          const api: ClientApi = getClientApi(modelConfig.providerName);
+          // make request
+          api.llm.chat({
+            messages: sendMessages,
+            config: { ...modelConfig, stream: true },
+            onUpdate(message) {
+              botMessage.streaming = true;
+              if (message) {
+                botMessage.content = message;
               }
-              get().onNewMessage(botMessage, session);
-            }
-            ChatControllerPool.remove(session.id, botMessage.id);
-          },
-          onBeforeTool(tool: ChatMessageTool) {
-            (botMessage.tools = botMessage?.tools || []).push(tool);
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onAfterTool(tool: ChatMessageTool) {
-            botMessage?.tools?.forEach((t, i, tools) => {
-              if (tool.id == t.id) {
-                tools[i] = { ...tool };
-              }
-            });
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-          },
-          onError(error) {
-            const isAborted = error.message?.includes?.("aborted");
-            botMessage.content +=
-              "\n\n" +
-              prettyObject({
-                error: true,
-                message: error.message,
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
               });
-            botMessage.streaming = false;
-            userMessage.isError = !isAborted;
-            botMessage.isError = !isAborted;
-            get().updateTargetSession(session, (session) => {
-              session.messages = session.messages.concat();
-            });
-            ChatControllerPool.remove(
-              session.id,
-              botMessage.id ?? messageIndex,
-            );
+            },
+            async onFinish(message, res, gpt5PrevId?) {
+              botMessage.streaming = false;
+              if (message) {
+                botMessage.content = message;
+                botMessage.date = new Date().toLocaleString();
 
-            console.error("[Chat] failed ", error);
-          },
-          onController(controller) {
-            // collect controller for stop/retry
-            ChatControllerPool.addController(
-              session.id,
-              botMessage.id ?? messageIndex,
-              controller,
-            );
-          },
-        });
+                if (gpt5PrevId) {
+                  botMessage.gpt5PrevId = gpt5PrevId;
+                }
+                get().onNewMessage(botMessage, session);
+              }
+              ChatControllerPool.remove(session.id, botMessage.id);
+              // decrement in-flight and perform deferred hydrate if needed
+              set((s) => {
+                const next = Math.max(0, (s as any)._inFlight - 1);
+                return { ...s, _inFlight: next };
+              });
+
+              const st = _get() as any;
+              if (st._inFlight === 0 && st._pendingExternalHydrate) {
+                await (get() as any).rehydrateFromDiskAndMerge();
+                set({ _pendingExternalHydrate: false });
+              }
+            },
+
+            onBeforeTool(tool: ChatMessageTool) {
+              (botMessage.tools = botMessage?.tools || []).push(tool);
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onAfterTool(tool: ChatMessageTool) {
+              botMessage?.tools?.forEach((t, i, tools) => {
+                if (tool.id == t.id) {
+                  tools[i] = { ...tool };
+                }
+              });
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+            },
+            onError(error) {
+              const isAborted = error.message?.includes?.("aborted");
+              botMessage.content +=
+                "\n\n" +
+                prettyObject({
+                  error: true,
+                  message: error.message,
+                });
+              botMessage.streaming = false;
+              userMessage.isError = !isAborted;
+              botMessage.isError = !isAborted;
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+              ChatControllerPool.remove(
+                session.id,
+                botMessage.id ?? messageIndex,
+              );
+
+              console.error("[Chat] failed ", error);
+              // decrement in-flight and perform deferred hydrate if needed
+              set((s) => {
+                const next = Math.max(0, (s as any)._inFlight - 1);
+                return { ...s, _inFlight: next };
+              });
+              const st = _get() as any;
+              if (st._inFlight === 0 && st._pendingExternalHydrate) {
+                (get() as any).rehydrateFromDiskAndMerge().then(() => {
+                  set({ _pendingExternalHydrate: false });
+                });
+              }
+            },
+            onController(controller) {
+              // collect controller for stop/retry
+              ChatControllerPool.addController(
+                session.id,
+                botMessage.id ?? messageIndex,
+                controller,
+              );
+            },
+          });
+        } catch (e) {
+          set((s) => {
+            const next = Math.max(0, (s as any)._inFlight - 1);
+            return { ...s, _inFlight: next };
+          });
+          throw e;
+        }
       },
 
       getMemoryPrompt() {
@@ -1015,12 +1291,38 @@ export const useChatStore = createPersistStore(
         }
       },
     };
-
     return methods;
   },
   {
     name: StoreKey.Chat,
     version: 3.4,
+    partialize: (state) => partializeChatState(state) as any,
+
+    merge: (persisted: any, current: any) => {
+      if (!persisted) return current;
+
+      const hasPersistedSessions =
+        Array.isArray(persisted.sessions) && persisted.sessions.length > 0;
+      const base = hasPersistedSessions
+        ? { ...current, sessions: stripOnlyPlaceholder(current.sessions ?? []) }
+        : current;
+
+      return reconcileChatStore(base, persisted);
+    },
+    onRehydrateStorage: (state) => {
+      return async () => {
+        try {
+          const env = await readPersistEnvelope(StoreKey.Chat);
+          if (env?.rev != null) {
+            state._rev = env.rev;
+            console.log("rev is:", state._rev);
+          }
+        } catch {}
+        try {
+          state.initCrossTabSync?.();
+        } catch {}
+      };
+    },
     migrate(persistedState, version) {
       const state = persistedState as any;
       const newState = JSON.parse(

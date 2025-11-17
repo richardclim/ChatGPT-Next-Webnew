@@ -269,7 +269,7 @@ export function ChatList({
   };
   if (!hasHydrated || isPending) {
     console.log(
-      `[ChatList Render] Rendering SKELETON because hasHydrated=${hasHydrated} or isPending=${isPending}.`,
+      `[ChatList Render] Rendering SKELETON if hasHydrated is false: (${hasHydrated}) or isPending is true: (${isPending}).`,
     );
     return <ChatListSkeleton narrow={narrow} />;
   }

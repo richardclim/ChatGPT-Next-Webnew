@@ -3,6 +3,7 @@ import { combine, persist, createJSONStorage } from "zustand/middleware";
 import { Updater } from "../typing";
 import { deepClone } from "./clone";
 import { indexedDBStorage } from "@/app/utils/indexedDB-storage";
+import { useChatStore } from "../store";
 
 type SecondParam<T> = T extends (
   _f: infer _F,
@@ -37,8 +38,14 @@ export function createPersistStore<T extends object, M>(
   persistOptions.storage = createJSONStorage(() => indexedDBStorage);
   const oldOonRehydrateStorage = persistOptions?.onRehydrateStorage;
   persistOptions.onRehydrateStorage = (state) => {
-    oldOonRehydrateStorage?.(state);
-    return () => state.setHasHydrated(true);
+    const prevAfter = oldOonRehydrateStorage?.(state);
+    return (postState, error) => {
+      if (error) {
+        console.error("Error in onRehydrateStorage:", error);
+      }
+      prevAfter?.(postState, error);
+      state.setHasHydrated(true);
+    };
   };
 
   return create(
@@ -67,6 +74,10 @@ export function createPersistStore<T extends object, M>(
               });
             },
             setHasHydrated: (state: boolean) => {
+              console.log(
+                "[createPersistStore] setHasHydrated called with:",
+                state,
+              );
               set({ _hasHydrated: state } as Partial<T & M & MakeUpdater<T>>);
             },
           } as M & MakeUpdater<T>;
