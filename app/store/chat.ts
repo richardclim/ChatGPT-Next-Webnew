@@ -1300,27 +1300,28 @@ export const useChatStore = createPersistStore(
 
     merge: (persisted: any, current: any) => {
       if (!persisted) return current;
-
+      const rev = persisted.rev || 0;
       const hasPersistedSessions =
         Array.isArray(persisted.sessions) && persisted.sessions.length > 0;
       const base = hasPersistedSessions
         ? { ...current, sessions: stripOnlyPlaceholder(current.sessions ?? []) }
         : current;
 
-      return reconcileChatStore(base, persisted);
+      const mergedState = reconcileChatStore(base, persisted);
+      return {
+        ...mergedState,
+        _rev: rev,
+      };
     },
-    onRehydrateStorage: (state) => {
-      return async () => {
+    onRehydrateStorage: () => {
+      return async (hydratedState: any, error) => {
+        if (error) return;
+        console.log("rev is:", hydratedState._rev);
         try {
-          const env = await readPersistEnvelope(StoreKey.Chat);
-          if (env?.rev != null) {
-            state._rev = env.rev;
-            console.log("rev is:", state._rev);
-          }
-        } catch {}
-        try {
-          state.initCrossTabSync?.();
-        } catch {}
+          hydratedState.initCrossTabSync?.();
+        } catch (e) {
+          console.error(e);
+        }
       };
     },
     migrate(persistedState, version) {

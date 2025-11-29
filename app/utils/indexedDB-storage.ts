@@ -172,10 +172,15 @@ async function performSetItem(name: string, value: string): Promise<void> {
 
 class IndexedDBStorage implements StateStorage {
   public async getItem(name: string): Promise<string | null> {
+    console.log(`[IndexedDBStorage] getItem called for: ${name}`);
     try {
       const value = (await get(name)) || localStorage.getItem(name);
+      console.log(
+        `[IndexedDBStorage] getItem completed for: ${name}, hasValue: ${!!value}`,
+      );
       return value;
     } catch (error) {
+      console.log(`[IndexedDBStorage] getItem error for: ${name}`, error);
       return localStorage.getItem(name);
     }
   }
