@@ -1522,6 +1522,7 @@ function _Chat() {
 
     chatStore.updateTargetSession(session, (session) => {
       session.messages = session.messages.concat(newMessage);
+      session.lastUpdate = Date.now();
     });
 
     setUserInput("");
@@ -1541,6 +1542,7 @@ function _Chat() {
 
     chatStore.updateTargetSession(session, (session) => {
       session.messages = session.messages.concat(newMessage);
+      session.lastUpdate = Date.now();
     });
     setUserInput("");
     scrollDomToBottom();

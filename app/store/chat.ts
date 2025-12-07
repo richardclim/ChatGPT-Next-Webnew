@@ -805,7 +805,7 @@ export const useChatStore = createPersistStore(
             role: "user",
             content: mContent,
             isMcpResponse,
-            isPasted, // Pass isPasted to createMessage
+            isPasted,
           });
 
           // If message is pasted, add it to messages and return early.
@@ -831,6 +831,7 @@ export const useChatStore = createPersistStore(
           const recentMessages = await get().getMessagesWithMemory();
           const sendMessages = recentMessages.concat(userMessage);
           const messageIndex = session.messages.length + 1;
+          const isNewChat = session.messages.length === 0;
 
           // save user's and bot's message
           get().updateTargetSession(session, (session) => {
@@ -845,6 +846,94 @@ export const useChatStore = createPersistStore(
           });
 
           const api: ClientApi = getClientApi(modelConfig.providerName);
+
+          // External Model Logic
+          if (modelConfig.model === "aistudio") {
+            // make request to local api
+            try {
+              const queueRes = await fetch("/api/external-chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "queue",
+                  id: userMessage.id,
+                  content: mContent,
+                  model: modelConfig.model,
+                  isNewChat,
+                }),
+              });
+              if (!queueRes.ok) {
+                throw new Error(`Failed to queue request: ${queueRes.status}`);
+              }
+            } catch (e) {
+              console.error("Failed to queue external chat request:", e);
+              botMessage.streaming = false;
+              botMessage.content =
+                "Error: Failed to send request to AI Studio bridge";
+              botMessage.isError = true;
+              get().updateTargetSession(session, (session) => {
+                session.messages = session.messages.concat();
+              });
+              set((s) => {
+                const next = Math.max(0, (s as any)._inFlight - 1);
+                return { ...s, _inFlight: next };
+              });
+              return;
+            }
+
+            // poll for response
+            const pollInterval = setInterval(async () => {
+              try {
+                const res = await fetch("/api/external-chat", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    action: "poll_response",
+                  }),
+                });
+                const data = await res.json();
+                if (
+                  data.success &&
+                  data.response &&
+                  data.response.id === userMessage.id
+                ) {
+                  clearInterval(pollInterval);
+
+                  botMessage.streaming = false;
+                  botMessage.content = data.response.content;
+                  botMessage.date = new Date().toLocaleString();
+
+                  // Sync title from external AI if present and non-empty
+                  if (data.response.title && data.response.title.trim()) {
+                    get().updateTargetSession(session, (session) => {
+                      session.topic = data.response.title.trim();
+                    });
+                  }
+
+                  get().onNewMessage(botMessage, session);
+
+                  ChatControllerPool.remove(session.id, botMessage.id);
+                  set((s) => {
+                    const next = Math.max(0, (s as any)._inFlight - 1);
+                    return { ...s, _inFlight: next };
+                  });
+                }
+              } catch (e) {
+                console.error("Polling error", e);
+              }
+            }, 1000);
+
+            // Add a controller to stop polling if needed
+            ChatControllerPool.addController(
+              session.id,
+              botMessage.id ?? messageIndex,
+              {
+                stop: () => clearInterval(pollInterval),
+              } as any,
+            );
+
+            return;
+          }
+
           // make request
           api.llm.chat({
             messages: sendMessages,

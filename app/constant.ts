@@ -522,6 +522,7 @@ const openaiModels = [
   "gpt-4.1-nano-2025-04-14",
   "gpt-4.5-preview",
   "gpt-4.5-preview-2025-02-27",
+  "gpt-5.1",
   "gpt-5-chat",
   "gpt-5-mini",
   "gpt-5-nano",
@@ -567,6 +568,7 @@ const googleModels = [
   "gemini-2.5-pro-preview-06-05",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
+  "aistudio",
 ];
 
 const anthropicModels = [
