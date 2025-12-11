@@ -1,23 +1,106 @@
 // ==UserScript==
 // @name         External AI Chat Bridge
 // @namespace    ChatApp
-// @version      0.2
+// @version      0.5
 // @description  Bridge external AI website with local Chat App
 // @author       You
+// @match        https://aistudio.google.com/u/1/prompts/*
 // @match        https://aistudio.google.com/prompts/*
 // @connect      localhost
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
+// @run-at       document-start
 // ==/UserScript==
 
-(function () {
+// --- CRITICAL PATCHES: Apply BEFORE page scripts load ---
+// These must run at document-start to intercept Angular's initialization
+
+// Patch requestAnimationFrame to work in background tabs
+// Angular CDK virtual scroll uses RAF for rendering
+const originalRAF = unsafeWindow.requestAnimationFrame;
+unsafeWindow.requestAnimationFrame = function (callback) {
+  return setTimeout(callback, 16); // 16ms ≈ 60fps
+};
+unsafeWindow.cancelAnimationFrame = function (id) {
+  clearTimeout(id);
+};
+
+// Spoof visibility state - Angular checks these before rendering
+Object.defineProperty(unsafeWindow.document, "visibilityState", {
+  get: () => "visible",
+  configurable: true,
+});
+Object.defineProperty(unsafeWindow.document, "hidden", {
+  get: () => false,
+  configurable: true,
+});
+
+// Patch IntersectionObserver to always report elements as visible
+// Angular CDK virtual scroll uses IntersectionObserver to determine which items to render
+// In background tabs, real intersection detection fails, so we fake it
+const OriginalIntersectionObserver = unsafeWindow.IntersectionObserver;
+unsafeWindow.IntersectionObserver = class FakeIntersectionObserver {
+  constructor(callback, options) {
+    this.callback = callback;
+    this.options = options;
+    this.observables = new Set();
+  }
+
+  observe(target) {
+    this.observables.add(target);
+    // Create a fake entry that says "this element is fully visible"
+    const fakeEntry = {
+      target: target,
+      isIntersecting: true,
+      intersectionRatio: 1,
+      boundingClientRect: target.getBoundingClientRect(),
+      intersectionRect: target.getBoundingClientRect(),
+      rootBounds: null,
+      time: performance.now(),
+    };
+    // Fire callback asynchronously (libraries expect this on next tick)
+    setTimeout(() => {
+      if (this.observables.has(target)) {
+        this.callback([fakeEntry], this);
+      }
+    }, 50);
+  }
+
+  unobserve(target) {
+    this.observables.delete(target);
+  }
+
+  disconnect() {
+    this.observables.clear();
+  }
+
+  takeRecords() {
+    return [];
+  }
+};
+
+console.log(
+  "[Bridge] Visibility + IntersectionObserver patches applied at document-start",
+);
+
+// Main script runs after DOM is ready
+(function waitForDOM() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", main);
+  } else {
+    main();
+  }
+})();
+
+function main() {
   "use strict";
+
   const API_URL = "http://localhost:3000/api/external-chat";
   const POLL_INTERVAL = 1000;
   const SELECTORS = {
     NEW_CHAT_BUTTON: 'button[aria-label="New chat"][iconname="add"]',
     INPUT_BOX: "textarea.textarea",
     SUBMIT_BUTTON: 'button[aria-label="Run"]',
-    STOP_BUTTON: "button:has(.stoppable-stop)",
     RESPONSE: "ms-text-chunk.ng-star-inserted",
     THREE_DOTS_MENU: 'button[aria-label="Open options"]',
     COPY_MARKDOWN_BUTTON: "button.mat-mdc-menu-item:has(.copy-markdown-button)",
@@ -25,16 +108,108 @@
     SCROLL_CONTAINER: "ms-autoscroll-container",
   };
 
+  /**
+   * Checks if generation is in progress by looking for "Stop" in the Run button's text.
+   * @returns {boolean} - True if generation is in progress (Stop button visible)
+   */
+  function isGenerating() {
+    const runBtn = document.querySelector(SELECTORS.SUBMIT_BUTTON);
+    if (!runBtn) return false;
+    const text = runBtn.textContent || "";
+    return text.toLowerCase().includes("stop");
+  }
+
   const SCROLL_CONFIG = {
-    STABILIZATION_CHECK_INTERVAL: 100, // ms between height checks
-    STABILIZATION_TIMEOUT: 3000, // max time to wait for stabilization
     POST_SCROLL_DELAY: 500, // delay after scroll before extraction
   };
   let isProcessing = false;
+  let audioContext = null;
+  let oscillatorNode = null;
+  let audioPlaying = false;
 
   function log(msg) {
     console.log("[Bridge]", msg);
   }
+
+  /**
+   * Starts continuous silent audio using AudioContext oscillator to prevent tab throttling.
+   * Uses an inaudible frequency (1Hz) with zero gain for true silence.
+   * Must be called from a user interaction (click/keypress).
+   */
+  function startContinuousSilentAudio() {
+    if (audioPlaying) return;
+
+    try {
+      // Create AudioContext (handles vendor prefixes)
+      const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        log("AudioContext not supported");
+        return;
+      }
+
+      audioContext = new AudioContextClass();
+
+      // Create oscillator with inaudible frequency
+      oscillatorNode = audioContext.createOscillator();
+      oscillatorNode.frequency.value = 1; // 1Hz - below human hearing
+
+      // Create gain node set to zero for true silence
+      const gainNode = audioContext.createGain();
+      gainNode.gain.value = 0.001; // Nearly silent (0 can cause some browsers to optimize away)
+
+      // Connect: oscillator -> gain -> destination
+      oscillatorNode.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      // Start the oscillator
+      oscillatorNode.start();
+      audioPlaying = true;
+      log(
+        "AudioContext oscillator started - tab throttling should be prevented",
+      );
+    } catch (e) {
+      log(
+        "Failed to create AudioContext: " +
+          e.message +
+          " - click the page first",
+      );
+    }
+  }
+
+  /**
+   * Stops the silent audio and cleans up AudioContext resources.
+   */
+  function stopContinuousSilentAudio() {
+    if (oscillatorNode) {
+      try {
+        oscillatorNode.stop();
+        oscillatorNode.disconnect();
+      } catch (e) {
+        // Ignore errors if already stopped
+      }
+      oscillatorNode = null;
+    }
+    if (audioContext) {
+      try {
+        audioContext.close();
+      } catch (e) {
+        // Ignore errors if already closed
+      }
+      audioContext = null;
+    }
+    audioPlaying = false;
+    log("AudioContext stopped");
+  }
+
+  // Start continuous audio on first user interaction
+  function onUserInteraction() {
+    if (!audioPlaying) {
+      startContinuousSilentAudio();
+    }
+  }
+  document.addEventListener("click", onUserInteraction);
+  document.addEventListener("keydown", onUserInteraction);
 
   /**
    * Finds the scrollable chat container element.
@@ -49,67 +224,29 @@
   }
 
   /**
-   * Waits for content height to stabilize, indicating rendering is complete.
-   * @param {Element} container - The scroll container element
-   * @param {number} timeout - Maximum time to wait in ms
-   * @returns {Promise<void>}
-   */
-  function waitForContentStabilization(
-    container,
-    timeout = SCROLL_CONFIG.STABILIZATION_TIMEOUT,
-  ) {
-    return new Promise((resolve) => {
-      const startTime = Date.now();
-      let lastHeight = container.scrollHeight;
-      let consecutiveStableChecks = 0;
-
-      const checkInterval = setInterval(() => {
-        const currentHeight = container.scrollHeight;
-
-        if (currentHeight === lastHeight) {
-          consecutiveStableChecks++;
-          if (consecutiveStableChecks >= 2) {
-            clearInterval(checkInterval);
-            resolve();
-            return;
-          }
-        } else {
-          consecutiveStableChecks = 0;
-          lastHeight = currentHeight;
-        }
-
-        if (Date.now() - startTime >= timeout) {
-          clearInterval(checkInterval);
-          log("Content stabilization timeout, proceeding with extraction");
-          resolve();
-        }
-      }, SCROLL_CONFIG.STABILIZATION_CHECK_INTERVAL);
-    });
-  }
-
-  /**
    * Scrolls the chat container to the bottom to trigger content propagation.
+   * Uses IntersectionObserver patch to ensure virtualized content renders.
    * @returns {Promise<boolean>} - True if scroll was successful, false otherwise
    */
   async function scrollToBottom() {
     try {
-      // Log background tab status if running in background
-      if (document.hidden) {
-        log("Running in background tab");
-      }
-
-      // Find the scroll container
       const container = findScrollContainer();
       if (!container) {
         log("Scroll container not found, proceeding with extraction");
         return false;
       }
+      // Force disable smooth scrolling to ensure immediate scroll
+      container.style.setProperty("scroll-behavior", "auto", "important");
 
       // Scroll to bottom
       container.scrollTop = container.scrollHeight;
+      // Force reflow to ensure browser calculates new geometry
+      void container.offsetHeight;
+      // Dispatch scroll event to notify Angular's virtual scroll
+      container.dispatchEvent(new Event("scroll", { bubbles: true }));
 
-      // Wait for content to stabilize after scrolling
-      await waitForContentStabilization(container);
+      // Small delay to let the patched IntersectionObserver trigger rendering
+      await wait(100);
 
       return true;
     } catch (error) {
@@ -156,6 +293,7 @@
         await wait(2000);
       }
     }
+    await scrollToBottom();
     const input = document.querySelector(SELECTORS.INPUT_BOX);
     if (input) {
       input.value = request.content;
@@ -163,11 +301,14 @@
       await wait(500);
       click(SELECTORS.SUBMIT_BUTTON);
       await waitForGeneration();
+
+      // Scroll to bottom and extract
       await scrollToBottom();
       await wait(SCROLL_CONFIG.POST_SCROLL_DELAY);
-      const responseText = extractMarkdown();
+
+      const extractionResult = extractMarkdownFromDOM();
       const title = request.isNewChat ? extractTitle() : null;
-      sendResponse(request.id, responseText, title);
+      sendResponse(request.id, extractionResult, title);
     } else {
       log("Input box not found");
       isProcessing = false;
@@ -214,31 +355,67 @@
 
   async function waitForGeneration() {
     log("Waiting for generation...");
-    await wait(2000);
-    await new Promise((resolve) => {
-      const check = setInterval(() => {
-        const stopBtn = document.querySelector(SELECTORS.STOP_BUTTON);
-        if (!stopBtn) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 1000);
-    });
-    await wait(1500);
-    log("Generation complete, content should be fully rendered");
+
+    const POLL_MS = 200;
+    const POST_GENERATION_DELAY = 3000; // Wait 3 seconds after stop button disappears
+
+    // Wait for generation to start (stop button appears) or timeout
+    const startTime = Date.now();
+    while (!isGenerating() && Date.now() - startTime < 15000) {
+      await wait(POLL_MS);
+    }
+    if (!isGenerating()) {
+      log("Generation never detected after 15s - proceeding");
+      return;
+    }
+    log("Generation started");
+    while (isGenerating()) {
+      await wait(POLL_MS);
+    }
+    await wait(POST_GENERATION_DELAY);
+    log("Generation complete");
   }
 
-  function extractMarkdown() {
+  /**
+   * Extracts markdown from the DOM.
+   * Finds the last ms-chat-turn and extracts the last ms-text-chunk within it.
+   * @returns {string} - The extracted markdown or error message
+   */
+  function extractMarkdownFromDOM() {
     log("Extracting markdown from DOM...");
-    const response = document.querySelectorAll(SELECTORS.RESPONSE);
-    const lastResponse = response[response.length - 1];
-    if (!lastResponse) {
-      return "Error: No response elements found";
+
+    const container = findScrollContainer();
+    const searchRoot = container || document;
+
+    // Find all chat turns - each turn contains thinking + response chunks
+    const chatTurns = searchRoot.querySelectorAll("ms-chat-turn");
+
+    if (chatTurns.length === 0) {
+      // Fallback to old method
+      const responses = searchRoot.querySelectorAll(SELECTORS.RESPONSE);
+      if (responses.length === 0) {
+        return "Error: No response elements found";
+      }
+      const lastResponse = responses[responses.length - 1];
+      try {
+        return convertNodeToMarkdown(lastResponse).trim();
+      } catch (e) {
+        return "Error: Markdown extraction failed - " + e.message;
+      }
     }
 
+    // Get the last chat turn
+    const lastTurn = chatTurns[chatTurns.length - 1];
+    const chunks = lastTurn.querySelectorAll(SELECTORS.RESPONSE);
+
+    if (chunks.length === 0) {
+      return "Error: No content in last turn";
+    }
+    // Get the LAST chunk in this turn (the actual response, not thinking)
+    const lastChunk = chunks[chunks.length - 1];
+
     try {
-      // Manual markdown extraction to avoid Trusted Types issues
-      const markdown = convertNodeToMarkdown(lastResponse);
+      const markdown = convertNodeToMarkdown(lastChunk);
       log("Markdown extracted successfully");
       return markdown.trim();
     } catch (e) {
@@ -498,4 +675,4 @@
 
   setInterval(poll, POLL_INTERVAL);
   log("Bridge started");
-})();
+}

@@ -472,6 +472,15 @@ function useScrollToBottom(
     }
   }, [scrollRef]);
 
+  // scroll to bottom on initial mount
+  const didMount = useRef(false);
+  useEffect(() => {
+    if (!didMount.current) {
+      didMount.current = true;
+      scrollDomToBottom();
+    }
+  }, [scrollDomToBottom]);
+
   // auto scroll
   useEffect(() => {
     if (autoScroll && !detach) {
@@ -487,6 +496,17 @@ function useScrollToBottom(
     }
     lastMessagesLength.current = messages.length;
   }, [messages.length, detach, scrollDomToBottom]);
+
+  // auto scroll when a message finishes streaming (for aistudio and other external models)
+  const lastStreamingCount = useRef(messages.filter((m) => m.streaming).length);
+  useEffect(() => {
+    const currentStreamingCount = messages.filter((m) => m.streaming).length;
+    // If streaming count decreased (a message finished), scroll to bottom
+    if (currentStreamingCount < lastStreamingCount.current && !detach) {
+      scrollDomToBottom();
+    }
+    lastStreamingCount.current = currentStreamingCount;
+  }, [messages, detach, scrollDomToBottom]);
 
   return {
     scrollRef,
@@ -1034,7 +1054,7 @@ function _Chat() {
       scrollRef.current.getBoundingClientRect().top;
     // leave some space for user question
     return topDistance < 100;
-  }, [scrollRef?.current?.scrollHeight]);
+  }, []);
 
   const isTyping = userInput !== "";
 
