@@ -98,6 +98,7 @@ export enum StoreKey {
   Sync = "sync",
   SdList = "sd-list",
   Mcp = "mcp-store",
+  Memory = "memory-store",
 }
 
 export const DEFAULT_SIDEBAR_WIDTH = 300;
@@ -523,8 +524,12 @@ const openaiModels = [
   "gpt-4.5-preview",
   "gpt-4.5-preview-2025-02-27",
   "gpt-5.1",
+  "gpt-5.2-chat-latest",
+  "gpt-5.2",
   "gpt-5-chat",
   "gpt-5-mini",
+  "gpt-5-mini-medium",
+  "gpt-5-mini-low",
   "gpt-5-nano",
   "gpt-5",
   "gpt-5-chat-2025-01-01-preview",
@@ -568,6 +573,9 @@ const googleModels = [
   "gemini-2.5-pro-preview-06-05",
   "gemini-2.5-flash",
   "gemini-2.5-pro",
+  "gemini-3-flash-preview-minimal",
+  "gemini-3-flash-preview-low",
+  "gemini-3-flash-preview-high",
   "aistudio",
 ];
 

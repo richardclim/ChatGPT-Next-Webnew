@@ -153,7 +153,8 @@ export class GeminiProApi implements LLMApi {
     };
     const isThinking =
       options.config.model.includes("-thinking") ||
-      options.config.model.includes("pro");
+      options.config.model.includes("pro") ||
+      options.config.model.includes("gemini-3-flash-preview");
 
     const requestPayload = {
       contents: messages,
@@ -164,10 +165,20 @@ export class GeminiProApi implements LLMApi {
         temperature: modelConfig.temperature,
         maxOutputTokens: modelConfig.max_tokens,
         topP: modelConfig.top_p,
+        responseMimeType: options.config.responseMimeType,
         // "topK": modelConfig.top_k,
         ...(isThinking && {
           thinkingConfig: {
-            thinkingBudget: 32768,
+            ...(options.config.model.includes("gemini-3-flash-preview")
+              ? {
+                  thinkingLevel:
+                    options.config.model.split("-").pop() === "preview"
+                      ? "low"
+                      : options.config.model.split("-").pop(),
+                }
+              : {
+                  thinkingBudget: 32768,
+                }),
             includeThoughts: true,
           },
         }),
@@ -198,7 +209,11 @@ export class GeminiProApi implements LLMApi {
     try {
       // https://github.com/google-gemini/cookbook/blob/main/quickstarts/rest/Streaming_REST.ipynb
       const chatPath = this.path(
-        Google.ChatPath(modelConfig.model),
+        Google.ChatPath(
+          modelConfig.model.includes("gemini-3-flash-preview")
+            ? "gemini-3-flash-preview"
+            : modelConfig.model,
+        ),
         shouldStream,
       );
 

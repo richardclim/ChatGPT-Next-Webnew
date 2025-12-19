@@ -76,7 +76,7 @@ export interface RequestPayload extends BaseRequest {
 export interface ResponseRequestPayload extends BaseRequest {
   input: string;
   reasoning: {
-    effort: "minimal" | "medium" | "high";
+    effort: "none" | "low" | "minimal" | "medium" | "high" | "xhigh";
     summary: "auto";
   };
   text: {
@@ -242,7 +242,13 @@ export class ChatGPTApi implements LLMApi {
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
       options.config.model.startsWith("o4-mini");
-    const isGpt5 = options.config.model.startsWith("gpt-5");
+    const isGpt5 =
+      options.config.model.startsWith("gpt-5") &&
+      !options.config.useStandardCompletion;
+    const isGpt52 = options.config.model.startsWith("gpt-5.2");
+    const isGpt5MiniMedium = options.config.model === "gpt-5-mini-medium";
+    const isGpt5MiniLow = options.config.model === "gpt-5-mini-low";
+    const isGpt5Mini = options.config.model.startsWith("gpt-5-mini");
     if (isDalle3) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
@@ -269,6 +275,20 @@ export class ChatGPTApi implements LLMApi {
         const prevId = [...session.messages].reverse().find((m) => m.gpt5PrevId)
           ?.gpt5PrevId;
 
+        // Determine reasoning effort based on model
+        const getReasoningEffort = () => {
+          if (isGpt52) return "xhigh";
+          if (isGpt5MiniMedium) return "medium";
+          if (isGpt5MiniLow) return "low";
+          return "high";
+        };
+
+        // Determine verbosity based on model
+        const getVerbosity = () => {
+          if (isGpt5Mini) return "medium";
+          return "high";
+        };
+
         requestPayload = {
           stream: options.config.stream,
           model: modelConfig.model,
@@ -279,11 +299,11 @@ export class ChatGPTApi implements LLMApi {
           // { role: lastMsg.role, content: lastMsgText },
           input: lastMsgText,
           reasoning: {
-            effort: "high",
+            effort: getReasoningEffort(),
             summary: "auto",
           },
           text: {
-            verbosity: "high",
+            verbosity: getVerbosity(),
           },
           // max_output_tokens: modelConfig.max_tokens,
           store: true,
@@ -512,7 +532,7 @@ export class ChatGPTApi implements LLMApi {
         streamWithThink(
           chatPath,
           requestPayload,
-          getHeaders(),
+          getHeaders(false, modelConfig.providerName as ServiceProvider),
           tools as any,
           funcs,
           controller,
@@ -540,7 +560,10 @@ export class ChatGPTApi implements LLMApi {
           method: "POST",
           body: JSON.stringify(requestPayload),
           signal: controller.signal,
-          headers: getHeaders(),
+          headers: getHeaders(
+            false,
+            modelConfig.providerName as ServiceProvider,
+          ),
         };
 
         // make a fetch request
