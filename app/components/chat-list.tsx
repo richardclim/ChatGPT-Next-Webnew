@@ -35,6 +35,7 @@ interface ChatItemProps {
   mask: Mask;
   style?: React.CSSProperties;
   isPinned: boolean;
+  tokenCount?: number;
 }
 
 const ChatItem = memo(function ChatItem({
@@ -50,6 +51,7 @@ const ChatItem = memo(function ChatItem({
   mask,
   style,
   isPinned,
+  tokenCount,
 }: ChatItemProps) {
   const draggableRef = useRef<HTMLDivElement | null>(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -161,6 +163,11 @@ const ChatItem = memo(function ChatItem({
               <div className={styles["chat-item-info"]}>
                 <div className={styles["chat-item-count"]}>
                   {Locale.ChatItem.ChatItemCount(count)}
+                  {tokenCount && tokenCount > 0 && (
+                    <span style={{ marginLeft: "8px" }}>
+                      {Math.ceil(tokenCount)} tokens
+                    </span>
+                  )}
                 </div>
                 <div className={styles["chat-item-date"]}>{time}</div>
               </div>
@@ -330,6 +337,7 @@ export function ChatList({
                       narrow={narrow}
                       mask={item.mask}
                       isPinned={item.pinned ?? false}
+                      tokenCount={item.stat?.cumulativeUsage?.total || 0}
                     />
                   </div>
                 );

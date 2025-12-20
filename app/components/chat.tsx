@@ -1769,6 +1769,10 @@ function _Chat() {
             </div>
             <div className="window-header-sub-title">
               {Locale.Chat.SubTitle(session.messages.length)}
+              {session.stat?.cumulativeUsage?.total &&
+              session.stat?.cumulativeUsage?.total > 0
+                ? ` · ${Math.ceil(session.stat.cumulativeUsage.total)} tokens`
+                : ""}
             </div>
           </div>
           <div className="window-actions">

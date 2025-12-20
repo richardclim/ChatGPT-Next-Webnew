@@ -62,6 +62,8 @@ export interface LLMConfig {
   size?: DalleRequestPayload["size"];
   quality?: DalleRequestPayload["quality"];
   style?: DalleRequestPayload["style"];
+  responseMimeType?: string;
+  useStandardCompletion?: boolean;
 }
 
 export interface SpeechOptions {
@@ -82,6 +84,10 @@ export interface ChatOptions {
     message: string,
     responseRes: Response,
     gpt5PrevId?: string,
+    usage?: {
+      prompt: number;
+      completion: number;
+    },
   ) => void;
   onError?: (err: Error) => void;
   onController?: (controller: AbortController) => void;
