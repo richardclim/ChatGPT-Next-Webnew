@@ -87,6 +87,11 @@ export interface ChatStat {
   tokenCount: number;
   wordCount: number;
   charCount: number;
+  cumulativeUsage?: {
+    total?: number;
+    input?: number;
+    output?: number;
+  };
 }
 
 export interface ChatSession {
@@ -121,6 +126,11 @@ function createEmptySession(): ChatSession {
       tokenCount: 0,
       wordCount: 0,
       charCount: 0,
+      cumulativeUsage: {
+        total: 0,
+        input: 0,
+        output: 0,
+      },
     },
     lastUpdate: Date.now(),
     lastSummarizeIndex: 0,
@@ -947,7 +957,7 @@ export const useChatStore = createPersistStore(
                 session.messages = session.messages.concat();
               });
             },
-            async onFinish(message, res, gpt5PrevId?) {
+            async onFinish(message, res, gpt5PrevId?, usage?) {
               botMessage.streaming = false;
               if (message) {
                 botMessage.content = message;
@@ -957,6 +967,35 @@ export const useChatStore = createPersistStore(
                   botMessage.gpt5PrevId = gpt5PrevId;
                 }
                 get().onNewMessage(botMessage, session);
+
+                get().updateTargetSession(session, (session) => {
+                  if (!session.stat.cumulativeUsage) {
+                    session.stat.cumulativeUsage = {
+                      total: 0,
+                      input: 0,
+                      output: 0,
+                    };
+                  }
+
+                  let inputTokens = 0;
+                  let outputTokens = 0;
+
+                  if (usage) {
+                    inputTokens = usage.prompt;
+                    outputTokens = usage.completion;
+                  } else {
+                    inputTokens = countMessages(sendMessages);
+                    outputTokens = estimateTokenLength(message);
+                  }
+
+                  session.stat.cumulativeUsage.input =
+                    (session.stat.cumulativeUsage.input || 0) + inputTokens;
+                  session.stat.cumulativeUsage.output =
+                    (session.stat.cumulativeUsage.output || 0) + outputTokens;
+                  session.stat.cumulativeUsage.total =
+                    (session.stat.cumulativeUsage.input || 0) +
+                    (session.stat.cumulativeUsage.output || 0);
+                });
               }
               ChatControllerPool.remove(session.id, botMessage.id);
               // decrement in-flight and perform deferred hydrate if needed

@@ -318,7 +318,14 @@ export class GeminiProApi implements LLMApi {
                 .map((part: { text: string }) => part.text)
                 .join("");
 
-              return { isThinking: isThinkingPart, content };
+              const usage = chunkJson.usageMetadata
+                ? {
+                    prompt: chunkJson.usageMetadata.promptTokenCount,
+                    completion: chunkJson.usageMetadata.candidatesTokenCount,
+                  }
+                : undefined;
+
+              return { isThinking: isThinkingPart, content, usage };
             },
             processToolMessage,
             options,
@@ -351,10 +358,23 @@ export class GeminiProApi implements LLMApi {
                 },
               });
             }
-            return chunkJson?.candidates
+            const content = chunkJson?.candidates
               ?.at(0)
               ?.content.parts?.map((part: { text: string }) => part.text)
               .join("\n\n");
+
+            const usage = chunkJson.usageMetadata
+              ? {
+                  prompt: chunkJson.usageMetadata.promptTokenCount,
+                  completion: chunkJson.usageMetadata.candidatesTokenCount,
+                }
+              : undefined;
+
+            return {
+              content,
+              usage,
+              isThinking: false,
+            };
           },
           // processToolMessage, include tool_calls message and tool call results
           processToolMessage,
@@ -374,7 +394,13 @@ export class GeminiProApi implements LLMApi {
           );
         }
         const message = apiClient.extractMessage(resJson);
-        options.onFinish(message, res);
+        const usage = resJson.usageMetadata
+          ? {
+              prompt: resJson.usageMetadata.promptTokenCount,
+              completion: resJson.usageMetadata.candidatesTokenCount,
+            }
+          : undefined;
+        options.onFinish(message, res, undefined, usage);
       }
     } catch (e) {
       console.log("[Request] failed to make a chat request", e);

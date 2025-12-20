@@ -179,7 +179,10 @@ export function stream(
   tools: any[],
   funcs: Record<string, Function>,
   controller: AbortController,
-  parseSSE: (text: string, runTools: any[]) => string | undefined,
+  parseSSE: (
+    text: string,
+    runTools: any[],
+  ) => string | { content: string; usage?: { prompt: number; completion: number } } | undefined,
   processToolMessage: (
     requestPayload: any,
     toolCallMessage: any,
@@ -193,6 +196,7 @@ export function stream(
   let running = false;
   let runTools: any[] = [];
   let responseRes: Response;
+  let usage: { prompt: number; completion: number } | undefined;
 
   // animate response to make it looks smooth
   function animateResponseText() {
@@ -291,7 +295,7 @@ export function stream(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes); // 将res传递给onFinish
+      options.onFinish(responseText + remainText, responseRes, undefined, usage); // 将res传递给onFinish
     }
   };
 
@@ -368,8 +372,21 @@ export function stream(
         }
         try {
           const chunk = parseSSE(text, runTools);
-          if (chunk) {
-            remainText += chunk;
+          if (typeof chunk === "string") {
+            if (chunk) {
+              remainText += chunk;
+            }
+          } else if (chunk) {
+            // @ts-ignore
+            if (chunk.content) {
+              // @ts-ignore
+              remainText += chunk.content;
+            }
+            // @ts-ignore
+            if (chunk.usage) {
+              // @ts-ignore
+              usage = chunk.usage;
+            }
           }
         } catch (e) {
           console.error("[Request] parse error", text, msg, e);
@@ -402,6 +419,7 @@ export function streamWithThink(
   ) => {
     isThinking: boolean;
     content: string | undefined;
+    usage?: { prompt: number; completion: number };
   },
   processToolMessage: (
     requestPayload: any,
@@ -416,6 +434,7 @@ export function streamWithThink(
   let running = false;
   let runTools: any[] = [];
   let responseRes: Response;
+  let usage: { prompt: number; completion: number } | undefined;
   let isInThinkingMode = false;
   let lastIsThinking = false;
   let lastIsThinkingTagged = false; //between <think> and </think> tags
@@ -517,7 +536,7 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes);
+      options.onFinish(responseText + remainText, responseRes, undefined, usage);
     }
   };
 
@@ -594,6 +613,11 @@ export function streamWithThink(
         }
         try {
           const chunk = parseSSE(text, runTools);
+
+          if (chunk.usage) {
+            usage = chunk.usage;
+          }
+
           // Skip if content is empty
           if (!chunk?.content || chunk.content.length === 0) {
             return;

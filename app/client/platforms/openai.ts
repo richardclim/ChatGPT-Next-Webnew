@@ -64,6 +64,9 @@ export interface BaseRequest {
   top_p: number;
   max_tokens?: number;
   max_completion_tokens?: number;
+  stream_options?: {
+    include_usage?: boolean;
+  };
 }
 export interface RequestPayload extends BaseRequest {
   messages: {
@@ -328,6 +331,9 @@ export class ChatGPTApi implements LLMApi {
           presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
           frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
           top_p: !isO1OrO3 ? modelConfig.top_p : 1,
+          stream_options: {
+            include_usage: true,
+          },
           ...(modelConfig.providerName == ServiceProvider.Anthropic && {
             include_reasoning: true,
           }),
@@ -421,6 +427,17 @@ export class ChatGPTApi implements LLMApi {
               reasoning?: string | null;
             };
           }>;
+
+          if (json.usage) {
+            return {
+              isThinking: false,
+              content: "",
+              usage: {
+                prompt: json.usage.prompt_tokens,
+                completion: json.usage.completion_tokens,
+              },
+            };
+          }
 
           if (!choices?.length) return { isThinking: false, content: "" };
 
@@ -579,7 +596,14 @@ export class ChatGPTApi implements LLMApi {
         const newGpt5Id = isGpt5 && resJson?.id ? resJson.id : undefined;
 
         const message = await this.extractMessage(resJson);
-        options.onFinish(message, res, newGpt5Id);
+        const usage = resJson.usage
+          ? {
+              prompt: resJson.usage.prompt_tokens,
+              completion: resJson.usage.completion_tokens,
+            }
+          : undefined;
+
+        options.onFinish(message, res, newGpt5Id, usage);
       }
     } catch (e) {
       console.log("[Request] failed to make a chat request", e);
