@@ -1,7 +1,7 @@
 import KebabMenuIcon from "../icons/kebab-menu.svg";
 import { IconButton } from "./button";
 import React, { useState, useEffect, useRef, useTransition, memo } from "react";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import styles from "./home.module.scss";
 import {
   DragDropContext,
@@ -55,11 +55,10 @@ const ChatItem = memo(function ChatItem({
   const [isHovered, setIsHovered] = useState(false);
 
   const { openMenu, closeMenu } = useChatStore(
-    (state) => ({
+    useShallow((state) => ({
       openMenu: state.openMenu,
       closeMenu: state.closeMenu,
-    }),
-    shallow,
+    })),
   );
   const isMenuOpen = useChatStore(
     (state) => state.isMenuOpen && state.menuSessionId === id,
@@ -219,18 +218,17 @@ export function ChatList({
   scrollRef,
 }: {
   narrow?: boolean;
-  scrollRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { sessions, selectedIndex, selectSession, moveSession, hasHydrated } =
     useChatStore(
-      (state) => ({
+      useShallow((state) => ({
         sessions: state.sessions,
         selectedIndex: state.currentSessionIndex,
         selectSession: state.selectSession,
         moveSession: state.moveSession,
         hasHydrated: state._hasHydrated,
-      }),
-      shallow,
+      })),
     );
   const chatStore = useChatStore();
   const navigate = useNavigate();
