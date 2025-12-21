@@ -3,7 +3,7 @@ import React, { useRef, useCallback, useEffect, RefObject } from "react";
 import { useChatStore } from "../store";
 import styles from "./home.module.scss";
 import Locale from "../locales";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import { useMobileScreen } from "../utils";
 
 import DeleteIcon from "../icons/delete.svg";
@@ -24,24 +24,26 @@ export function ChatMenuPortal() {
     unpinSession,
     updateSessionTopic,
     deleteSession,
-  } = useChatStore((state) => {
-    const sessionIndex = state.sessions.findIndex(
-      (s) => s.id === state.menuSessionId,
-    );
-    const session = sessionIndex !== -1 ? state.sessions[sessionIndex] : null;
-    return {
-      isMenuOpen: state.isMenuOpen,
-      closeMenu: state.closeMenu,
-      menuSessionId: state.menuSessionId,
-      menuPosition: state.menuPosition,
-      sessionIndex,
-      session,
-      pinSession: state.pinSession,
-      unpinSession: state.unpinSession,
-      updateSessionTopic: state.updateSessionTopic,
-      deleteSession: state.deleteSession,
-    };
-  }, shallow);
+  } = useChatStore(
+    useShallow((state) => {
+      const sessionIndex = state.sessions.findIndex(
+        (s) => s.id === state.menuSessionId,
+      );
+      const session = sessionIndex !== -1 ? state.sessions[sessionIndex] : null;
+      return {
+        isMenuOpen: state.isMenuOpen,
+        closeMenu: state.closeMenu,
+        menuSessionId: state.menuSessionId,
+        menuPosition: state.menuPosition,
+        sessionIndex,
+        session,
+        pinSession: state.pinSession,
+        unpinSession: state.unpinSession,
+        updateSessionTopic: state.updateSessionTopic,
+        deleteSession: state.deleteSession,
+      };
+    }),
+  );
 
   // Use the outside click handler to close the menu
   useOutsideAlerter(
@@ -144,7 +146,7 @@ export function ChatMenuPortal() {
 }
 
 function useOutsideAlerter(
-  ref: RefObject<HTMLDivElement>,
+  ref: RefObject<HTMLDivElement | null>,
   callback: () => void,
   isOpen: boolean,
 ) {

@@ -201,7 +201,7 @@ export function SideBarHeader(props: {
 export function SideBarBody(props: {
   children: React.ReactNode;
   onClick?: (e: React.MouseEvent<HTMLDivElement, MouseEvent>) => void;
-  scrollRef?: React.RefObject<HTMLDivElement>;
+  scrollRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const { onClick, children } = props;
   return (

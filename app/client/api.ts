@@ -62,6 +62,8 @@ export interface LLMConfig {
   size?: DalleRequestPayload["size"];
   quality?: DalleRequestPayload["quality"];
   style?: DalleRequestPayload["style"];
+  responseMimeType?: string;
+  useStandardCompletion?: boolean;
 }
 
 export interface SpeechOptions {
