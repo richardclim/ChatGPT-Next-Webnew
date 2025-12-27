@@ -15,7 +15,7 @@ import DiscoveryIcon from "../icons/discovery.svg";
 
 import Locale from "../locales";
 
-import { useAppConfig, useChatStore } from "../store";
+import { useAppConfig, useChatStore, useProfileStore } from "../store";
 
 import {
   DEFAULT_SIDEBAR_WIDTH,
@@ -29,7 +29,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { isIOS, useMobileScreen } from "../utils";
 import dynamic from "next/dynamic";
-import { Selector, showConfirm } from "./ui-lib";
+import { Selector, showConfirm, showPrompt } from "./ui-lib";
 import clsx from "clsx";
 import { isMcpEnabled } from "../mcp/actions";
 
@@ -236,8 +236,21 @@ export function SideBar(props: { className?: string }) {
   const navigate = useNavigate();
   const config = useAppConfig();
   const chatStore = useChatStore();
+  const profileStore = useProfileStore();
   const [mcpEnabled, setMcpEnabled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const [showProfileSelector, setShowProfileSelector] = useState(false);
+  const [showNewChatProfileSelector, setShowNewChatProfileSelector] =
+    useState(false);
+
+  // Helper to delete profile and cleanup sessions
+  const handleDeleteProfile = async (id: string) => {
+    if (await showConfirm("Are you sure you want to delete this profile?")) {
+      chatStore.deleteProfileFromSessions(id);
+      profileStore.deleteProfile(id);
+    }
+  };
 
   useEffect(() => {
     // 检查 MCP 是否启用
@@ -261,21 +274,142 @@ export function SideBar(props: { className?: string }) {
         logo={<ChatGptIcon />}
         shouldNarrow={shouldNarrow}
       >
-        <div className={styles["sidebar-header-bar"]}>
-          <IconButton
-            icon={<MaskIcon />}
-            text={shouldNarrow ? undefined : Locale.Mask.Name}
+        <div
+          className={styles["sidebar-header-bar"]}
+          style={{ flexDirection: "column", alignItems: "flex-start" }}
+        >
+          {/* Profile Selector */}
+          <div
             className={styles["sidebar-bar-button"]}
-            onClick={() => {
-              if (config.dontShowMaskSplashScreen !== true) {
-                navigate(Path.NewChat, { state: { fromHome: true } });
-              } else {
-                navigate(Path.Masks, { state: { fromHome: true } });
-              }
+            onClick={() => setShowProfileSelector(true)}
+            style={{
+              width: "100%",
+              marginBottom: 10,
+              padding: "5px 10px",
+              cursor: "pointer",
+              backgroundColor: "var(--white)",
+              borderRadius: 10,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              boxShadow: "var(--card-shadow)",
             }}
-            shadow
-          />
-          {mcpEnabled && (
+          >
+            <div style={{ fontSize: 12, textOverflow: "ellipsis" }}>
+              {profileStore.currentProfileId
+                ? profileStore.profiles.find(
+                    (p) => p.id === profileStore.currentProfileId,
+                  )?.name
+                : "Default Profile"}
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.5 }}>▼</div>
+          </div>
+
+          {showProfileSelector && (
+            <Selector
+              items={[
+                { title: "Default Profile", value: "" },
+                ...profileStore.profiles.map((p) => ({
+                  title: p.name,
+                  value: p.id,
+                  // Show delete option via a subTitle or just rely on a separate manage UI?
+                  // Selector doesn't support actions on items easily.
+                  // Let's add a "Manage Profiles" item instead.
+                })),
+                {
+                  title: "Create Profile",
+                  value: "create_new_profile_action",
+                },
+                {
+                  title: "Manage Profiles",
+                  value: "manage_profiles_action",
+                },
+              ]}
+              onClose={() => setShowProfileSelector(false)}
+              onSelection={async (s) => {
+                const value = s[0];
+                if (value === "create_new_profile_action") {
+                  const name = await showPrompt("Enter profile name");
+                  if (name) {
+                    profileStore.createProfile(name);
+                  }
+                } else if (value === "manage_profiles_action") {
+                  // Show a simple prompt to ask which profile ID to delete? No that's bad UX.
+                  // Since we can't easily add a "Delete" button to each item in `Selector` without modifying it,
+                  // let's iterate and ask user to delete one by one?
+                  // Or, better: modify Selector to support secondary actions? Too risky.
+                  // Let's show a list of profiles using `showModal` where each has a delete button.
+                  showModal({
+                    title: "Manage Profiles",
+                    children: (
+                      <div className={styles["sidebar-body"]}>
+                        {profileStore.profiles.map((p) => (
+                          <div
+                            key={p.id}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              padding: "10px",
+                              borderBottom: "1px solid #eee",
+                              alignItems: "center",
+                            }}
+                          >
+                            <span>{p.name}</span>
+                            <IconButton
+                              icon={<DeleteIcon />}
+                              onClick={() => handleDeleteProfile(p.id)}
+                              bordered
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                    onClose: () => {},
+                  });
+                } else {
+                  profileStore.selectProfile(value === "" ? null : value);
+                }
+              }}
+            />
+          )}
+
+          <div style={{ display: "flex", width: "100%" }}>
+            <IconButton
+              icon={<MaskIcon />}
+              text={shouldNarrow ? undefined : Locale.Mask.Name}
+              className={styles["sidebar-bar-button"]}
+              onClick={() => {
+                if (config.dontShowMaskSplashScreen !== true) {
+                  navigate(Path.NewChat, { state: { fromHome: true } });
+                } else {
+                  navigate(Path.Masks, { state: { fromHome: true } });
+                }
+              }}
+              shadow
+            />
+            {mcpEnabled && (
+              <IconButton
+                icon={<McpIcon />}
+                text={shouldNarrow ? undefined : Locale.Mcp.Name}
+                className={styles["sidebar-bar-button"]}
+                onClick={() => {
+                  navigate(Path.McpMarket, { state: { fromHome: true } });
+                }}
+                shadow
+              />
+            )}
+            <IconButton
+              icon={<DiscoveryIcon />}
+              text={shouldNarrow ? undefined : Locale.Discovery.Name}
+              className={styles["sidebar-bar-button"]}
+              onClick={() => setshowDiscoverySelector(true)}
+              shadow
+            />
+          </div>
+        </div>
+        {showDiscoverySelector && (
+          <Selector
+            items={[
             <IconButton
               icon={<McpIcon />}
               text={shouldNarrow ? undefined : Locale.Mcp.Name}
@@ -355,19 +489,57 @@ export function SideBar(props: { className?: string }) {
           </>
         }
         secondaryAction={
-          <IconButton
-            icon={<AddIcon />}
-            text={shouldNarrow ? undefined : Locale.Home.NewChat}
-            onClick={() => {
-              if (config.dontShowMaskSplashScreen) {
-                chatStore.newSession();
-                navigate(Path.Chat);
-              } else {
-                navigate(Path.NewChat);
-              }
-            }}
-            shadow
-          />
+          <div style={{ position: "relative" }}>
+            <IconButton
+              icon={<AddIcon />}
+              text={shouldNarrow ? undefined : Locale.Home.NewChat}
+              onClick={() => {
+                if (profileStore.profiles.length > 0) {
+                  setShowNewChatProfileSelector(true);
+                } else {
+                  if (config.dontShowMaskSplashScreen) {
+                    chatStore.newSession();
+                    navigate(Path.Chat);
+                  } else {
+                    navigate(Path.NewChat);
+                  }
+                }
+              }}
+              shadow
+            />
+            {showNewChatProfileSelector && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: 0,
+                  marginBottom: 10,
+                  zIndex: 9999,
+                }}
+              >
+                <Selector
+                  items={[
+                    { title: "Default Profile", value: "" },
+                    ...profileStore.profiles.map((p) => ({
+                      title: p.name,
+                      value: p.id,
+                    })),
+                  ]}
+                  onClose={() => setShowNewChatProfileSelector(false)}
+                  onSelection={(s) => {
+                    const profileId = s[0] === "" ? undefined : s[0];
+                    if (config.dontShowMaskSplashScreen) {
+                      chatStore.newSession(undefined, profileId);
+                      navigate(Path.Chat);
+                    } else {
+                      navigate(Path.NewChat, { state: { profileId } });
+                    }
+                    setShowNewChatProfileSelector(false);
+                  }}
+                />
+              </div>
+            )}
+          </div>
         }
       />
     </SideBarContainer>
