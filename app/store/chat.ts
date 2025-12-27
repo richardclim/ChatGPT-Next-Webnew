@@ -103,6 +103,7 @@ export interface ChatSession {
   mask: Mask;
   pinned: boolean;
   pinnedAt?: number | null;
+  profileId?: string;
 }
 
 export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
@@ -111,7 +112,7 @@ export const BOT_HELLO: ChatMessage = createMessage({
   content: Locale.Store.BotHello,
 });
 
-function createEmptySession(): ChatSession {
+function createEmptySession(profileId?: string): ChatSession {
   return {
     id: nanoid(),
     topic: DEFAULT_TOPIC,
@@ -128,6 +129,7 @@ function createEmptySession(): ChatSession {
     mask: createEmptyMask(),
     pinned: false,
     pinnedAt: null,
+    profileId,
   };
 }
 
@@ -558,6 +560,38 @@ export const useChatStore = createPersistStore(
         });
       },
 
+      updateSessionProfile(sessionIndex: number, profileId: string | null) {
+        set((state) => {
+          const sessions = [...state.sessions];
+          if (sessionIndex < 0 || sessionIndex >= sessions.length) return state;
+
+          const sessionToUpdate = sessions[sessionIndex];
+          if (profileId === null) {
+            delete sessionToUpdate.profileId;
+          } else {
+            sessionToUpdate.profileId = profileId;
+          }
+
+          return {
+            sessions,
+          };
+        });
+      },
+
+      deleteProfileFromSessions(profileId: string) {
+        set((state) => {
+          const sessions = state.sessions.map((session) => {
+            if (session.profileId === profileId) {
+              const newSession = { ...session };
+              delete newSession.profileId;
+              return newSession;
+            }
+            return session;
+          });
+          return { sessions };
+        });
+      },
+
       updateSessionTopic(sessionIndex: number, newTopic: string) {
         set((state) => {
           const sessions = [...state.sessions];
@@ -661,8 +695,8 @@ export const useChatStore = createPersistStore(
         });
       },
 
-      newSession(mask?: Mask) {
-        const session = createEmptySession();
+      newSession(mask?: Mask, profileId?: string) {
+        const session = createEmptySession(profileId);
 
         if (mask) {
           const config = useAppConfig.getState();

@@ -99,6 +99,7 @@ export enum StoreKey {
   SdList = "sd-list",
   Mcp = "mcp-store",
   Memory = "memory-store",
+  Profile = "profile-store",
 }
 
 export const DEFAULT_SIDEBAR_WIDTH = 300;
