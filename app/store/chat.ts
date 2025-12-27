@@ -44,6 +44,7 @@ import { collectModelsWithDefaultModel } from "../utils/model";
 import { createEmptyMask, Mask } from "./mask";
 import { executeMcpAction, getAllTools, isMcpEnabled } from "../mcp/actions";
 import { extractMcpJson, isMcpJson } from "../mcp/utils";
+import { fillTemplateWith } from "./chat-utils";
 
 const localStorage = safeLocalStorage();
 
@@ -170,49 +171,6 @@ function countMessages(msgs: ChatMessage[]) {
   );
 }
 
-function fillTemplateWith(input: string, modelConfig: ModelConfig) {
-  const cutoff =
-    KnowledgeCutOffDate[modelConfig.model] ?? KnowledgeCutOffDate.default;
-  // Find the model in the DEFAULT_MODELS array that matches the modelConfig.model
-  const modelInfo = DEFAULT_MODELS.find((m) => m.name === modelConfig.model);
-
-  var serviceProvider = "OpenAI";
-  if (modelInfo) {
-    // TODO: auto detect the providerName from the modelConfig.model
-
-    // Directly use the providerName from the modelInfo
-    serviceProvider = modelInfo.provider.providerName;
-  }
-
-  const vars = {
-    ServiceProvider: serviceProvider,
-    cutoff,
-    model: modelConfig.model,
-    time: new Date().toString(),
-    lang: getLang(),
-    input: input,
-  };
-
-  let output = modelConfig.template ?? DEFAULT_INPUT_TEMPLATE;
-
-  // remove duplicate
-  if (input.startsWith(output)) {
-    output = "";
-  }
-
-  // must contains {{input}}
-  const inputVar = "{{input}}";
-  if (!output.includes(inputVar)) {
-    output += "\n" + inputVar;
-  }
-
-  Object.entries(vars).forEach(([name, value]) => {
-    const regex = new RegExp(`{{${name}}}`, "g");
-    output = output.replace(regex, value.toString()); // Ensure value is a string
-  });
-
-  return output;
-}
 
 async function getMcpSystemPrompt(): Promise<string> {
   const tools = await getAllTools();
@@ -785,11 +743,18 @@ export const useChatStore = createPersistStore(
         set((s) => ({ ...s, _inFlight: (s as any)._inFlight + 1 }));
         try {
           const modelConfig = session.mask.modelConfig;
+          const configStore = useAppConfig.getState();
+          const accessStore = useAccessStore.getState();
+          const allModel = collectModelsWithDefaultModel(
+            configStore.models,
+            [configStore.customModels, accessStore.customModels].join(","),
+            accessStore.defaultModel,
+          );
 
           // MCP Response no need to fill template
           let mContent: string | MultimodalContent[] = isMcpResponse
             ? content
-            : fillTemplateWith(content, modelConfig);
+            : fillTemplateWith(content, modelConfig, allModel, getLang());
 
           if (!isMcpResponse && attachImages && attachImages.length > 0) {
             mContent = [
@@ -1072,14 +1037,26 @@ export const useChatStore = createPersistStore(
         var systemPrompts: ChatMessage[] = [];
 
         if (shouldInjectSystemPrompts) {
+          const configStore = useAppConfig.getState();
+          const accessStore = useAccessStore.getState();
+          const allModel = collectModelsWithDefaultModel(
+            configStore.models,
+            [configStore.customModels, accessStore.customModels].join(","),
+            accessStore.defaultModel,
+          );
           systemPrompts = [
             createMessage({
               role: "system",
               content:
-                fillTemplateWith("", {
-                  ...modelConfig,
-                  template: DEFAULT_SYSTEM_TEMPLATE,
-                }) + mcpSystemPrompt,
+                fillTemplateWith(
+                  "",
+                  {
+                    ...modelConfig,
+                    template: DEFAULT_SYSTEM_TEMPLATE,
+                  },
+                  allModel,
+                  getLang(),
+                ) + mcpSystemPrompt,
             }),
           ];
         } else if (mcpEnabled) {
