@@ -80,7 +80,7 @@ const ko: PartialLocaleType = {
       Masks: "모든 마스크",
       Clear: "채팅 지우기",
       Settings: "채팅 설정",
-      UploadImage: "이미지 업로드",
+      UploadFile: "업로드",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

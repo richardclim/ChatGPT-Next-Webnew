@@ -33,6 +33,7 @@ import {
   showConfirm,
 } from "./ui-lib";
 import { Avatar, AvatarPicker } from "./emoji";
+import { InputRange } from "./input-range";
 import Locale, { AllLangs, ALL_LANG_OPTIONS, Lang } from "../locales";
 import { useNavigate } from "react-router-dom";
 
@@ -252,6 +253,82 @@ export function MaskConfig(props: {
           updateConfig={updateConfig}
         />
         {props.extraListItems}
+      </List>
+
+      <List>
+        <ListItem
+          title="Enable Tavily Search"
+          subTitle="Allow the model to autonomously search the web for real-time information"
+        >
+          <input
+            aria-label="Enable Tavily Search"
+            type="checkbox"
+            checked={props.mask.modelConfig.enableTavily}
+            onChange={(e) =>
+              updateConfig(
+                (config) => (config.enableTavily = e.currentTarget.checked),
+              )
+            }
+          ></input>
+        </ListItem>
+        <ListItem
+          title="Tavily Search Type"
+          subTitle="Choose between Basic, Advanced, or Extract mode"
+        >
+          <Select
+            aria-label="Tavily Search Type"
+            value={props.mask.modelConfig.tavilySearchType}
+            onChange={(e) => {
+              updateConfig(
+                (config) => (config.tavilySearchType = e.target.value as any),
+              );
+            }}
+          >
+            <option value="basic">Basic Search</option>
+            <option value="advanced">Advanced Search</option>
+            <option value="extract">Extract API</option>
+          </Select>
+        </ListItem>
+        <ListItem
+          title="Tavily Max Results"
+          subTitle="Maximum number of search results to fetch per query"
+        >
+          <InputRange
+            aria="Tavily Max Results"
+            title={`${props.mask.modelConfig.tavilyMaxResults}`}
+            value={props.mask.modelConfig.tavilyMaxResults}
+            min="1"
+            max="20"
+            step="1"
+            onChange={(e) => {
+              updateConfig(
+                (config) =>
+                  (config.tavilyMaxResults =
+                    parseInt(e.currentTarget.value) || 5),
+              );
+            }}
+          />
+        </ListItem>
+        <ListItem
+          title="Max Chunks Per Source"
+          subTitle="Maximum chunk depth when including raw content"
+        >
+          <InputRange
+            aria="Max Chunks Per Source"
+            title={`${props.mask.modelConfig.tavilyMaxChunksPerSource}`}
+            value={props.mask.modelConfig.tavilyMaxChunksPerSource}
+            min="1"
+            max="20"
+            step="1"
+            onChange={(e) => {
+              updateConfig(
+                (config) =>
+                  (config.tavilyMaxChunksPerSource =
+                    parseInt(e.currentTarget.value) || 5),
+              );
+            }}
+          />
+        </ListItem>
       </List>
     </>
   );

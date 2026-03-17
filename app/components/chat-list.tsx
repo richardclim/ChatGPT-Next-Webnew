@@ -267,7 +267,8 @@ export function ChatList({
 
     moveSession(source.index, destination.index);
   };
-  if (!hasHydrated || isPending) {
+  // (!hasHydrated || isPending)
+  if (isPending) {
     console.log(
       `[ChatList Render] Rendering SKELETON if hasHydrated is false: (${hasHydrated}) or isPending is true: (${isPending}).`,
     );

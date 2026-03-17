@@ -76,7 +76,7 @@ const id: PartialLocaleType = {
       Masks: "Semua Masker",
       Clear: "Hapus Obrolan",
       Settings: "Pengaturan Obrolan",
-      UploadImage: "Unggah Gambar",
+      UploadFile: "Unggah",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

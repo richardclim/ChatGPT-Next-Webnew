@@ -1,13 +1,18 @@
 import { ServiceProvider } from "@/app/constant";
 import { ModalConfigValidator, ModelConfig } from "../store";
+import styles from "./model-config.module.scss";
 
 import Locale from "../locales";
 import { InputRange } from "./input-range";
-import { ListItem, Select } from "./ui-lib";
+import { ListItem, showPrompt } from "./ui-lib";
+import { IconButton } from "./button";
+import { ModelSelect } from "./model-select";
+import type { GroupedModels } from "./model-select";
 import { useAllModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
-import styles from "./model-config.module.scss";
 import { getModelProvider } from "../utils/model";
+import { getModelMaxOutputTokens } from "../utils/model-utils";
+import EditIcon from "../icons/edit.svg";
 
 export function ModelConfigList(props: {
   modelConfig: ModelConfig;
@@ -17,37 +22,36 @@ export function ModelConfigList(props: {
   const groupModels = groupBy(
     allModels.filter((v) => v.available),
     "provider.providerName",
-  );
+  ) as unknown as GroupedModels;
   const value = `${props.modelConfig.model}@${props.modelConfig?.providerName}`;
   const compressModelValue = `${props.modelConfig.compressModel}@${props.modelConfig?.compressProviderName}`;
+  const modelMaxTokens = getModelMaxOutputTokens(props.modelConfig.model);
 
   return (
     <>
       <ListItem title={Locale.Settings.Model}>
-        <Select
+        <ModelSelect
           aria-label={Locale.Settings.Model}
           value={value}
-          align="left"
-          onChange={(e) => {
-            const [model, providerName] = getModelProvider(
-              e.currentTarget.value,
-            );
+          models={groupModels}
+          onChange={(val) => {
+            const [model, providerName] = getModelProvider(val);
             props.updateConfig((config) => {
+              const oldModelMax = getModelMaxOutputTokens(config.model);
               config.model = ModalConfigValidator.model(model);
               config.providerName = providerName as ServiceProvider;
+              const newModelMax = getModelMaxOutputTokens(model);
+              if (config.max_tokens > newModelMax) {
+                config.max_tokens = newModelMax;
+              } else if (
+                newModelMax > oldModelMax &&
+                config.max_tokens < newModelMax
+              ) {
+                config.max_tokens = newModelMax;
+              }
             });
           }}
-        >
-          {Object.keys(groupModels).map((providerName, index) => (
-            <optgroup label={providerName} key={index}>
-              {groupModels[providerName].map((v, i) => (
-                <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                  {v.displayName}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
+        />
       </ListItem>
       <ListItem
         title={Locale.Settings.Temperature.Title}
@@ -96,14 +100,17 @@ export function ModelConfigList(props: {
         <input
           aria-label={Locale.Settings.MaxTokens.Title}
           type="number"
-          min={1024}
-          max={512000}
-          value={props.modelConfig.max_tokens}
+          min={0}
+          max={modelMaxTokens}
+          value={props.modelConfig.max_tokens || ""}
+          placeholder={Locale.Settings.MaxTokens.Placeholder}
+          className={styles["max-tokens-input"]}
           onChange={(e) =>
             props.updateConfig(
               (config) =>
                 (config.max_tokens = ModalConfigValidator.max_tokens(
                   e.currentTarget.valueAsNumber,
+                  modelMaxTokens,
                 )),
             )
           }
@@ -154,24 +161,6 @@ export function ModelConfigList(props: {
                 );
               }}
             ></InputRange>
-          </ListItem>
-
-          <ListItem
-            title={Locale.Settings.InjectSystemPrompts.Title}
-            subTitle={Locale.Settings.InjectSystemPrompts.SubTitle}
-          >
-            <input
-              aria-label={Locale.Settings.InjectSystemPrompts.Title}
-              type="checkbox"
-              checked={props.modelConfig.enableInjectSystemPrompts}
-              onChange={(e) =>
-                props.updateConfig(
-                  (config) =>
-                    (config.enableInjectSystemPrompts =
-                      e.currentTarget.checked),
-                )
-              }
-            ></input>
           </ListItem>
 
           <ListItem
@@ -229,6 +218,45 @@ export function ModelConfigList(props: {
           }
         ></input>
       </ListItem>
+
+      <ListItem
+        title={Locale.Settings.InjectSystemPrompts.Title}
+        subTitle={Locale.Settings.InjectSystemPrompts.SubTitle}
+      >
+        <input
+          aria-label={Locale.Settings.InjectSystemPrompts.Title}
+          type="checkbox"
+          checked={props.modelConfig.enableInjectSystemPrompts}
+          onChange={(e) =>
+            props.updateConfig(
+              (config) =>
+                (config.enableInjectSystemPrompts = e.currentTarget.checked),
+            )
+          }
+        ></input>
+      </ListItem>
+
+      <ListItem
+        title={Locale.Settings.SystemPrompt.Title}
+        subTitle={Locale.Settings.SystemPrompt.SubTitle}
+      >
+        <IconButton
+          aria={Locale.Settings.SystemPrompt.Edit}
+          icon={<EditIcon />}
+          text={Locale.Settings.SystemPrompt.Edit}
+          onClick={async () => {
+            const newPrompt = await showPrompt(
+              Locale.Settings.SystemPrompt.Title,
+              props.modelConfig.systemPrompt,
+              10,
+            );
+            if (newPrompt !== undefined) {
+              props.updateConfig((config) => (config.systemPrompt = newPrompt));
+            }
+          }}
+        />
+      </ListItem>
+
       <ListItem title={Locale.Memory.Title} subTitle={Locale.Memory.Send}>
         <input
           aria-label={Locale.Memory.Title}
@@ -241,32 +269,67 @@ export function ModelConfigList(props: {
           }
         ></input>
       </ListItem>
+
+      <ListItem
+        title={Locale.Settings.PromptOptimizer.Instructions}
+        subTitle={Locale.Settings.PromptOptimizer.InstructionsSubTitle}
+      >
+        <IconButton
+          aria={Locale.Settings.PromptOptimizer.Edit}
+          icon={<EditIcon />}
+          text={Locale.Settings.PromptOptimizer.Edit}
+          onClick={async () => {
+            const newInstructions = await showPrompt(
+              Locale.Settings.PromptOptimizer.Edit,
+              props.modelConfig.promptOptimizerInstructions,
+              10,
+            );
+            if (newInstructions !== undefined) {
+              props.updateConfig(
+                (config) =>
+                  (config.promptOptimizerInstructions = newInstructions),
+              );
+            }
+          }}
+        />
+      </ListItem>
+
+      <ListItem
+        title={Locale.Settings.PromptOptimizer.Model}
+        subTitle={Locale.Settings.PromptOptimizer.ModelSubTitle}
+      >
+        <ModelSelect
+          aria-label={Locale.Settings.PromptOptimizer.Model}
+          value={`${props.modelConfig.promptOptimizerModel}@${props.modelConfig?.promptOptimizerProviderName}`}
+          models={groupModels}
+          placeholder={Locale.Settings.PromptOptimizer.SelectModel}
+          onChange={(val) => {
+            const [model, providerName] = getModelProvider(val);
+            props.updateConfig((config) => {
+              config.promptOptimizerModel = ModalConfigValidator.model(model);
+              config.promptOptimizerProviderName =
+                (providerName as ServiceProvider) || ServiceProvider.OpenAI;
+            });
+          }}
+        />
+      </ListItem>
       <ListItem
         title={Locale.Settings.CompressModel.Title}
         subTitle={Locale.Settings.CompressModel.SubTitle}
       >
-        <Select
-          className={styles["select-compress-model"]}
+        <ModelSelect
           aria-label={Locale.Settings.CompressModel.Title}
           value={compressModelValue}
-          onChange={(e) => {
-            const [model, providerName] = getModelProvider(
-              e.currentTarget.value,
-            );
+          models={groupModels}
+          placeholder={Locale.Settings.CompressModel.SelectModel}
+          onChange={(val) => {
+            const [model, providerName] = getModelProvider(val);
             props.updateConfig((config) => {
               config.compressModel = ModalConfigValidator.model(model);
               config.compressProviderName = providerName as ServiceProvider;
             });
           }}
-        >
-          {allModels
-            .filter((v) => v.available)
-            .map((v, i) => (
-              <option value={`${v.name}@${v.provider?.providerName}`} key={i}>
-                {v.displayName}({v.provider?.providerName})
-              </option>
-            ))}
-        </Select>
+        />
       </ListItem>
     </>
   );

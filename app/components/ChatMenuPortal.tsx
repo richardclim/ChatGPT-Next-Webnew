@@ -3,6 +3,7 @@ import React, { useRef, useCallback, useEffect, RefObject } from "react";
 import { useChatStore } from "../store";
 import styles from "./home.module.scss";
 import Locale from "../locales";
+import { showPrompt } from "./ui-lib";
 import { shallow } from "zustand/shallow";
 import { useMobileScreen } from "../utils";
 
@@ -78,9 +79,9 @@ export function ChatMenuPortal() {
       {/* Rename Button */}
       <div
         className={styles["chat-item-menu-popup-button"]}
-        onClick={() => {
+        onClick={async () => {
           closeMenu(); // Close menu before showing prompt
-          const newName = window.prompt(
+          const newName = await showPrompt(
             Locale.ChatItem.RenameContent,
             session.topic,
           );

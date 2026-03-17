@@ -37,6 +37,7 @@ import CancelIcon from "../icons/cancel.svg";
 import ImageIcon from "../icons/image.svg";
 
 import LightIcon from "../icons/light.svg";
+import LightningIcon from "../icons/lightning.svg";
 import DarkIcon from "../icons/dark.svg";
 import AutoIcon from "../icons/auto.svg";
 import BottomIcon from "../icons/bottom.svg";
@@ -62,6 +63,7 @@ import {
   useAccessStore,
   useAppConfig,
   useChatStore,
+  useMemoryStore,
   usePluginStore,
 } from "../store";
 
@@ -72,6 +74,7 @@ import {
   getMessageTextContent,
   isDalle3,
   isVisionModel,
+  parseThinkingContent,
   safeLocalStorage,
   getModelSizes,
   supportsCustomSize,
@@ -80,7 +83,10 @@ import {
   showPlugins,
 } from "../utils";
 
-import { uploadImage as uploadImageRemote } from "@/app/utils/chat";
+import {
+  uploadImage as uploadImageRemote,
+  readFileAsDataUrl,
+} from "@/app/utils/chat";
 
 import dynamic from "next/dynamic";
 
@@ -117,9 +123,11 @@ import { useMaskStore } from "../store/mask";
 import { ChatCommandPrefix, useChatCommand, useCommand } from "../command";
 import { prettyObject } from "../utils/format";
 import { ExportMessageModal } from "./exporter";
+import { ThinkingBlock } from "./thinking-block";
+import { ToolSources } from "./tool-sources";
 import { getClientConfig } from "../config/client";
 import { useAllModels } from "../utils/hooks";
-import { ClientApi, MultimodalContent } from "../client/api";
+import { ClientApi, getClientApi, MultimodalContent } from "../client/api";
 import { createTTSPlayer } from "../utils/audio";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "../utils/ms_edge_tts";
 
@@ -410,6 +418,7 @@ export function ChatAction(props: {
   text: string;
   icon: JSX.Element;
   onClick: () => void;
+  active?: boolean;
 }) {
   const iconRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
@@ -431,7 +440,9 @@ export function ChatAction(props: {
 
   return (
     <div
-      className={clsx(styles["chat-input-action"], "clickable")}
+      className={clsx(styles["chat-input-action"], "clickable", {
+        [styles["active"]]: props.active,
+      })}
       onClick={() => {
         props.onClick();
         setTimeout(updateWidth, 1);
@@ -517,8 +528,11 @@ function useScrollToBottom(
 }
 
 export function ChatActions(props: {
-  uploadImage: () => void;
+  uploadFileOrImage: () => void;
   setAttachImages: (images: string[]) => void;
+  setAttachFiles: (
+    files: { url: string; name: string; mimeType: string }[],
+  ) => void;
   setUploading: (uploading: boolean) => void;
   showPromptModal: () => void;
   scrollToBottom: () => void;
@@ -530,6 +544,7 @@ export function ChatActions(props: {
   setShowChatSidePanel: React.Dispatch<React.SetStateAction<boolean>>;
   handlePasteQuestion: () => void;
   handlePasteResponse: () => void;
+  handlePromptOptimization: (input: string) => void;
 }) {
   const config = useAppConfig();
   const navigate = useNavigate();
@@ -601,6 +616,7 @@ export function ChatActions(props: {
     setShowUploadImage(show);
     if (!show) {
       props.setAttachImages([]);
+      props.setAttachFiles([]);
       props.setUploading(false);
     }
 
@@ -650,8 +666,8 @@ export function ChatActions(props: {
 
         {showUploadImage && (
           <ChatAction
-            onClick={props.uploadImage}
-            text={Locale.Chat.InputActions.UploadImage}
+            onClick={props.uploadFileOrImage}
+            text={Locale.Chat.InputActions.UploadFile}
             icon={props.uploading ? <LoadingButtonIcon /> : <ImageIcon />}
           />
         )}
@@ -859,6 +875,36 @@ export function ChatActions(props: {
             icon={<ShortcutkeyIcon />}
           />
         )}
+        <ChatAction
+          onClick={() => {
+            const enableMemory = !session.enableMemory;
+            chatStore.updateTargetSession(session, (session) => {
+              session.enableMemory = enableMemory;
+            });
+            useMemoryStore.getState().setEnabled(enableMemory);
+            showToast(
+              enableMemory ? Locale.UserProfile.Enable : "Memory Disabled",
+            );
+          }}
+          text={Locale.UserProfile.Title}
+          icon={<BrainIcon />}
+          active={session.enableMemory}
+        />
+        <ChatAction
+          onClick={() => {
+            const enableTavily = !session.mask.modelConfig.enableTavily;
+            chatStore.updateTargetSession(session, (session) => {
+              session.mask.modelConfig.enableTavily = enableTavily;
+              if (session.mask.syncGlobalConfig) {
+                config.update((c) => (c.modelConfig.enableTavily = enableTavily));
+              }
+            });
+            showToast(enableTavily ? "Search Enabled" : "Search Disabled");
+          }}
+          text="Search"
+          icon={<PluginIcon />}
+          active={session.mask.modelConfig.enableTavily}
+        />
         {!isMobileScreen && <MCPAction />}
         <ChatAction
           onClick={props.handlePasteQuestion}
@@ -869,6 +915,18 @@ export function ChatActions(props: {
           onClick={props.handlePasteResponse}
           text={Locale.Chat.InputActions.PasteResponse}
           icon={<PasteResponseIcon />}
+        />
+
+        <ChatAction
+          text={Locale.Settings.PromptOptimizer.Title}
+          icon={<LightningIcon />}
+          onClick={async () => {
+            if (props.uploading) return;
+            const input = document.querySelector("textarea")?.value;
+            if (!input || input.trim() === "") return;
+
+            props.handlePromptOptimization(input);
+          }}
         />
       </>
       <div className={styles["chat-input-actions-end"]}>
@@ -1037,6 +1095,10 @@ function _Chat() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [userInput, setUserInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [originalPrompt, setOriginalPrompt] = useState("");
+  const [optimizeController, setOptimizeController] =
+    useState<AbortController | null>(null);
   const { submitKey, shouldSubmit } = useSubmitHandler();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isScrolledToBottom = scrollRef?.current
@@ -1069,6 +1131,9 @@ function _Chat() {
   const isMobileScreen = useMobileScreen();
   const navigate = useNavigate();
   const [attachImages, setAttachImages] = useState<string[]>([]);
+  const [attachFiles, setAttachFiles] = useState<
+    { url: string; name: string; mimeType: string }[]
+  >([]);
   const [uploading, setUploading] = useState(false);
 
   // prompt hints
@@ -1150,10 +1215,12 @@ function _Chat() {
     }
     setIsLoading(true);
     chatStore
-      .onUserInput(userInput, attachImages, false, false) // isMcpResponse = false, isPasted = false
+      .onUserInput(userInput, attachImages, false, false, attachFiles)
       .then(() => setIsLoading(false));
     setAttachImages([]);
+    setAttachFiles([]);
     chatStore.setLastInput(userInput);
+    setOriginalPrompt("");
     setUserInput("");
     setPromptHints([]);
     if (!isMobileScreen) inputRef.current?.focus();
@@ -1611,49 +1678,61 @@ function _Chat() {
     [attachImages, chatStore],
   );
 
-  async function uploadImage() {
-    const images: string[] = [];
-    images.push(...attachImages);
-
-    images.push(
-      ...(await new Promise<string[]>((res, rej) => {
-        const fileInput = document.createElement("input");
-        fileInput.type = "file";
-        fileInput.accept =
-          "image/png, image/jpeg, image/webp, image/heic, image/heif";
-        fileInput.multiple = true;
-        fileInput.onchange = (event: any) => {
-          setUploading(true);
-          const files = event.target.files;
-          const imagesData: string[] = [];
-          for (let i = 0; i < files.length; i++) {
-            const file = event.target.files[i];
-            uploadImageRemote(file)
-              .then((dataUrl) => {
-                imagesData.push(dataUrl);
-                if (
-                  imagesData.length === 3 ||
-                  imagesData.length === files.length
-                ) {
-                  setUploading(false);
-                  res(imagesData);
-                }
-              })
-              .catch((e) => {
-                setUploading(false);
-                rej(e);
-              });
+  async function uploadFileOrImage() {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept =
+      "image/png, image/jpeg, image/webp, image/heic, image/heif, application/pdf";
+    fileInput.multiple = true;
+    fileInput.onchange = async (event: any) => {
+      setUploading(true);
+      try {
+        const selectedFiles: FileList = event.target.files;
+        const imageFiles: File[] = [];
+        const docFiles: File[] = [];
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          if (file.type.startsWith("image/")) {
+            imageFiles.push(file);
+          } else {
+            docFiles.push(file);
           }
-        };
-        fileInput.click();
-      })),
-    );
+        }
 
-    const imagesLength = images.length;
-    if (imagesLength > 3) {
-      images.splice(3, imagesLength - 3);
-    }
-    setAttachImages(images);
+        // Handle images
+        if (imageFiles.length > 0) {
+          const images: string[] = [...attachImages];
+          const imagesData = await Promise.all(
+            imageFiles.map((file) => uploadImageRemote(file)),
+          );
+          images.push(...imagesData);
+          if (images.length > 3) {
+            images.splice(3, images.length - 3);
+          }
+          setAttachImages(images);
+        }
+
+        // Handle documents
+        if (docFiles.length > 0) {
+          const newFiles: { url: string; name: string; mimeType: string }[] = [
+            ...attachFiles,
+          ];
+          for (let i = 0; i < docFiles.length && newFiles.length < 3; i++) {
+            const file = docFiles[i];
+            const dataUrl = await readFileAsDataUrl(file);
+            newFiles.push({
+              url: dataUrl,
+              name: file.name,
+              mimeType: file.type,
+            });
+          }
+          setAttachFiles(newFiles.slice(0, 3));
+        }
+      } finally {
+        setUploading(false);
+      }
+    };
+    fileInput.click();
   }
 
   // 快捷键 shortcut keys
@@ -1876,6 +1955,53 @@ function _Chat() {
                       }}
                     >
                       <Fragment>
+                        {isUser &&
+                          session.enableMemory &&
+                          !!message.memoryContext && (
+                            <div
+                              className={clsx(
+                                styles["chat-message-user"],
+                                styles["chat-message-memory"],
+                              )}
+                            >
+                              <div className={styles["chat-message-container"]}>
+                                <div className={styles["chat-message-header"]}>
+                                  <div
+                                    className={styles["chat-message-avatar"]}
+                                  >
+                                    <Avatar avatar="1f9e0" />
+                                  </div>
+                                </div>
+                                <div className={styles["chat-message-item"]}>
+                                  <div
+                                    className={
+                                      styles["chat-message-memory-label"]
+                                    }
+                                  >
+                                    <BrainIcon
+                                      className={styles["memory-brain-icon"]}
+                                      style={{
+                                        width: 14,
+                                        height: 14,
+                                        marginRight: 5,
+                                      }}
+                                    />
+                                    <span>Memory Context</span>
+                                  </div>
+                                  <Markdown
+                                    content={message.memoryContext}
+                                    loading={false}
+                                    fontSize={fontSize}
+                                    fontFamily={fontFamily}
+                                    parentRef={scrollRef}
+                                    defaultShow={
+                                      virtualItem.index >= messages.length - 6
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         <div
                           className={
                             isUser
@@ -2032,7 +2158,10 @@ function _Chat() {
                             {/*@ts-ignore*/}
                             {message?.tools?.length > 0 && (
                               <div className={styles["chat-message-tools"]}>
-                                {message?.tools?.map((tool) => (
+                                <ToolSources tools={message.tools || []} />
+                                {message?.tools?.map((tool) => {
+                                  if (tool.function?.name === "tavily_search" || tool.function?.name === "tavily_retrieve") return null;
+                                  return (
                                   <div
                                     key={tool.id}
                                     title={tool?.errorMsg}
@@ -2047,30 +2176,63 @@ function _Chat() {
                                     )}
                                     <span>{tool?.function?.name}</span>
                                   </div>
-                                ))}
+                                )})}
                               </div>
                             )}
                             <div className={styles["chat-message-item"]}>
-                              <Markdown
-                                key={message.streaming ? "loading" : "done"}
-                                content={getMessageTextContent(message)}
-                                loading={
-                                  (message.preview || message.streaming) &&
-                                  message.content.length === 0 &&
-                                  !isUser
-                                }
-                                //   onContextMenu={(e) => onRightClick(e, message)} // hard to use
-                                onDoubleClickCapture={() => {
-                                  if (!isMobileScreen) return;
-                                  setUserInput(getMessageTextContent(message));
-                                }}
-                                fontSize={fontSize}
-                                fontFamily={fontFamily}
-                                parentRef={scrollRef}
-                                defaultShow={
-                                  virtualItem.index >= messages.length - 6
-                                }
-                              />
+                              {(() => {
+                                const rawContent =
+                                  getMessageTextContent(message);
+
+                                const thinkingContent =
+                                  message.thinkingContent ??
+                                  parseThinkingContent(rawContent).thinking;
+                                const markdownContent =
+                                  message.thinkingContent !== undefined
+                                    ? rawContent
+                                    : parseThinkingContent(rawContent).output;
+
+                                return (
+                                  <>
+                                    {!isUser && thinkingContent && (
+                                      <ThinkingBlock
+                                        thinkingContent={thinkingContent}
+                                        isStreaming={message.streaming ?? false}
+                                        reasoningDurationMs={
+                                          message.timingInfo
+                                            ?.reasoningDurationMs
+                                        }
+                                        fontSize={fontSize}
+                                        fontFamily={fontFamily}
+                                      />
+                                    )}
+                                    <Markdown
+                                      key={
+                                        message.streaming ? "loading" : "done"
+                                      }
+                                      content={markdownContent}
+                                      loading={
+                                        (message.preview ||
+                                          message.streaming) &&
+                                        message.content.length === 0 &&
+                                        !isUser
+                                      }
+                                      onDoubleClickCapture={() => {
+                                        if (!isMobileScreen) return;
+                                        setUserInput(
+                                          getMessageTextContent(message),
+                                        );
+                                      }}
+                                      fontSize={fontSize}
+                                      fontFamily={fontFamily}
+                                      parentRef={scrollRef}
+                                      defaultShow={
+                                        virtualItem.index >= messages.length - 6
+                                      }
+                                    />
+                                  </>
+                                );
+                              })()}
                               {getMessageImages(message).length == 1 && (
                                 <img
                                   className={styles["chat-message-item-image"]}
@@ -2116,7 +2278,23 @@ function _Chat() {
                             <div className={styles["chat-message-action-date"]}>
                               {isContext
                                 ? Locale.Chat.IsContext
-                                : message.date.toLocaleString()}
+                                : [
+                                    message.date.toLocaleString(),
+                                    message.timingInfo?.reasoningDurationMs
+                                      ? `Thought ${Math.round(
+                                          message.timingInfo
+                                            .reasoningDurationMs / 1000,
+                                        )}s`
+                                      : null,
+                                    message.timingInfo?.totalDurationMs
+                                      ? `Total ${Math.round(
+                                          message.timingInfo.totalDurationMs /
+                                            1000,
+                                        )}s`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
                             </div>
                           </div>
                         </div>
@@ -2136,8 +2314,9 @@ function _Chat() {
               />
 
               <ChatActions
-                uploadImage={uploadImage}
+                uploadFileOrImage={uploadFileOrImage}
                 setAttachImages={setAttachImages}
+                setAttachFiles={setAttachFiles}
                 setUploading={setUploading}
                 showPromptModal={() => setShowPromptModal(true)}
                 scrollToBottom={scrollToBottom}
@@ -2159,11 +2338,99 @@ function _Chat() {
                 setShowChatSidePanel={setShowChatSidePanel}
                 handlePasteQuestion={handlePasteQuestion}
                 handlePasteResponse={handlePasteResponse}
+                handlePromptOptimization={async (input) => {
+                  const config = useAppConfig.getState();
+                  const modelConfig = config.modelConfig;
+
+                  if (!modelConfig.promptOptimizerModel) {
+                    showToast(Locale.Settings.Usage.NoAccess);
+                    return;
+                  }
+
+                  setOriginalPrompt(input);
+                  setIsOptimizing(true);
+                  setUserInput("");
+
+                  const messages = [
+                    ...session.messages.slice(-modelConfig.historyMessageCount),
+                    {
+                      role: "user",
+                      content: input,
+                      date: new Date().toLocaleString(),
+                    },
+                  ];
+
+                  const filteredMessages = messages.map((m) => {
+                    let textContent = "";
+                    if (typeof m.content === "string") {
+                      textContent = m.content;
+                    } else if (Array.isArray(m.content)) {
+                      textContent = getMessageTextContent(m as any);
+                    } else if ((m as any).text) {
+                      textContent = (m as any).text;
+                    }
+                    return {
+                      role: m.role,
+                      content: textContent,
+                      date: m.date,
+                    };
+                  });
+
+                  // Add system prompt if instructions are set
+                  if (modelConfig.promptOptimizerInstructions) {
+                    filteredMessages.unshift({
+                      role: "system",
+                      content: modelConfig.promptOptimizerInstructions,
+                      date: new Date().toLocaleString(),
+                    } as any);
+                  }
+
+                  let providerName = modelConfig.promptOptimizerProviderName;
+                  if (
+                    !providerName ||
+                    providerName === "undefined" ||
+                    providerName === "null"
+                  ) {
+                    const [_, p] = getModelProvider(
+                      modelConfig.promptOptimizerModel,
+                    );
+                    providerName = p || ServiceProvider.OpenAI;
+                  }
+
+                  const api = getClientApi(providerName as ServiceProvider);
+                  api.llm.chat({
+                    messages: filteredMessages as any,
+                    config: {
+                      ...modelConfig,
+                      model: modelConfig.promptOptimizerModel,
+                      providerName: providerName,
+                      stream: true,
+                      useStandardCompletion: true,
+                    },
+                    onUpdate: (message: string) => {
+                      setUserInput(message);
+                    },
+                    onFinish: (message: string) => {
+                      setUserInput(message);
+                      setIsOptimizing(false);
+                      setOptimizeController(null);
+                    },
+                    onError: (error: Error) => {
+                      console.error("[Prompt Optimizer] failed", error);
+                      showToast(Locale.Store.Error);
+                      setIsOptimizing(false);
+                      setOptimizeController(null);
+                    },
+                    onController: (controller) => {
+                      setOptimizeController(controller);
+                    },
+                  });
+                }}
               />
               <label
                 className={clsx(styles["chat-input-panel-inner"], {
                   [styles["chat-input-panel-inner-attach"]]:
-                    attachImages.length !== 0,
+                    attachImages.length !== 0 || attachFiles.length !== 0,
                 })}
                 htmlFor="chat-input"
               >
@@ -2174,6 +2441,11 @@ function _Chat() {
                   placeholder={Locale.Chat.Input(submitKey)}
                   onInput={(e) => onInput(e.currentTarget.value)}
                   value={userInput}
+                  disabled={
+                    isOptimizing ||
+                    isLoading ||
+                    session.messages.some((m) => m.streaming)
+                  }
                   onKeyDown={onInputKeyDown}
                   // onFocus={scrollToBottom}
                   // onClick={scrollToBottom}
@@ -2208,13 +2480,71 @@ function _Chat() {
                     })}
                   </div>
                 )}
-                <IconButton
-                  icon={<SendWhiteIcon />}
-                  text={Locale.Chat.Send}
-                  className={styles["chat-input-send"]}
-                  type="primary"
-                  onClick={() => doSubmit(userInput)}
-                />
+                {attachFiles.length != 0 && (
+                  <div className={styles["attach-images"]}>
+                    {attachFiles.map((file, index) => {
+                      return (
+                        <div key={index} className={styles["attach-file"]}>
+                          <div className={styles["attach-file-name"]}>
+                            {file.name}
+                          </div>
+                          <div className={styles["attach-image-mask"]}>
+                            <DeleteImageButton
+                              deleteImage={() => {
+                                setAttachFiles(
+                                  attachFiles.filter((_, i) => i !== index),
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div
+                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                >
+                  {originalPrompt && !isOptimizing && (
+                    <IconButton
+                      icon={<ReturnIcon />}
+                      text={Locale.Home.Revert}
+                      className={styles["chat-input-send"]}
+                      onClick={() => {
+                        setUserInput(originalPrompt);
+                        setOriginalPrompt("");
+                      }}
+                    />
+                  )}
+                  {isOptimizing ||
+                  isLoading ||
+                  session.messages.some((m) => m.streaming) ? (
+                    <IconButton
+                      icon={<StopIcon />}
+                      text={Locale.Chat.Actions.Stop}
+                      className={styles["chat-input-send"]}
+                      type="primary"
+                      onClick={() => {
+                        if (isOptimizing && optimizeController) {
+                          optimizeController.abort();
+                          setIsOptimizing(false);
+                          setOptimizeController(null);
+                        } else {
+                          ChatControllerPool.stopAll();
+                          setIsLoading(false);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <IconButton
+                      icon={<SendWhiteIcon />}
+                      text={Locale.Chat.Send}
+                      className={styles["chat-input-send"]}
+                      type="primary"
+                      onClick={() => doSubmit(userInput)}
+                    />
+                  )}
+                </div>
               </label>
             </div>
           </div>

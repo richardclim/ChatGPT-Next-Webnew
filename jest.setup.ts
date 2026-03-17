@@ -1,6 +1,10 @@
 // Learn more: https://github.com/testing-library/jest-dom
 import "@testing-library/jest-dom";
 import { jest } from "@jest/globals";
+import { TextDecoder, TextEncoder } from "util";
+
+global.TextDecoder = TextDecoder as any;
+global.TextEncoder = TextEncoder as any;
 
 global.fetch = jest.fn(() =>
   Promise.resolve({

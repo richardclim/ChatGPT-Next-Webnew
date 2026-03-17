@@ -267,6 +267,34 @@ export function getMessageTextContentWithoutThinking(message: RequestMessage) {
     .trim();
 }
 
+export function parseThinkingContent(content: string): {
+  thinking: string;
+  output: string;
+} {
+  if (!content) return { thinking: "", output: "" };
+
+  const thinkingLines: string[] = [];
+  const outputLines: string[] = [];
+
+  for (const line of content.split("\n")) {
+    if (line.startsWith("> ")) {
+      thinkingLines.push(line.slice(2));
+    } else {
+      outputLines.push(line);
+    }
+  }
+
+  return {
+    thinking: thinkingLines.join("\n"),
+    output: outputLines.join("\n"),
+  };
+}
+
+export function formatReasoningDuration(durationMs: number): string {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  return `Thought for ${seconds}s`;
+}
+
 export function getMessageImages(message: RequestMessage): string[] {
   if (typeof message.content === "string") {
     return [];
@@ -278,6 +306,21 @@ export function getMessageImages(message: RequestMessage): string[] {
     }
   }
   return urls;
+}
+
+export function getMessageFiles(
+  message: RequestMessage,
+): { url: string; name: string; mimeType: string }[] {
+  if (typeof message.content === "string") {
+    return [];
+  }
+  const files: { url: string; name: string; mimeType: string }[] = [];
+  for (const c of message.content) {
+    if (c.type === "file" && c.file) {
+      files.push(c.file);
+    }
+  }
+  return files;
 }
 
 export function isVisionModel(model: string) {

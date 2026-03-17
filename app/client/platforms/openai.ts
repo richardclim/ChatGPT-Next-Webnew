@@ -9,6 +9,7 @@ import {
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
   DEFAULT_SYSTEM_TEMPLATE,
+  TAVILY_SYSTEM_TEMPLATE,
 } from "@/app/constant";
 import {
   ChatMessageTool,
@@ -16,10 +17,21 @@ import {
   useAppConfig,
   useChatStore,
   usePluginStore,
+  TimingInfo,
+  ChatMessage,
 } from "@/app/store";
 import { collectModelsWithDefaultModel } from "@/app/utils/model";
 import {
+  tavilyToolDeclaration,
+  TAVILY_TOOL_NAME,
+  createTavilyHandler,
+  tavilyRetrieveDeclaration,
+  TAVILY_RETRIEVE_TOOL_NAME,
+  createTavilyRetrieveHandler,
+} from "@/app/client/tools/tavily";
+import {
   preProcessImageContent,
+  stripFileContent,
   uploadImage,
   base64Image2Blob,
   streamWithThink,
@@ -45,6 +57,7 @@ import {
   getTimeoutMSByModel,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
+import { parseGpt5Model } from "@/app/utils/model-utils";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -71,10 +84,19 @@ export interface RequestPayload extends BaseRequest {
     content: string | MultimodalContent[];
   }[];
   include_reasoning?: boolean;
+  reasoning_effort?: string;
+  response_format?: object;
 }
 
 export interface ResponseRequestPayload extends BaseRequest {
-  input: string;
+  input:
+    | string
+    | Array<
+        | { type: "input_text"; text: string }
+        | { type: "input_image"; image_url: string }
+        | { type: "input_file"; file_data: string; filename?: string }
+        | { type: "function_call_output"; call_id: string; output: string }
+      >;
   reasoning: {
     effort: "none" | "low" | "minimal" | "medium" | "high" | "xhigh";
     summary: "auto";
@@ -82,6 +104,14 @@ export interface ResponseRequestPayload extends BaseRequest {
   text: {
     verbosity: "low" | "medium" | "high";
   };
+  tools?: Array<{
+    type: "function";
+    function: {
+      name: string;
+      description?: string;
+      parameters: object;
+    };
+  }>;
   store?: boolean;
   previous_response_id?: string;
   max_output_tokens?: number;
@@ -96,6 +126,46 @@ export interface DalleRequestPayload {
   size: ModelSize;
   quality: DalleQuality;
   style: DalleStyle;
+}
+
+/**
+ * Convert MultimodalContent into the Responses API input format.
+ * Returns a plain string when the message is text-only, or an array
+ * of input_text / input_image / input_file items when it contains
+ * images or file attachments.
+ */
+async function buildResponsesInput(
+  content: string | MultimodalContent[],
+): Promise<ResponseRequestPayload["input"]> {
+  if (typeof content === "string") return content;
+
+  const hasNonText = content.some(
+    (p) => p.type === "image_url" || p.type === "file",
+  );
+  if (!hasNonText) {
+    return content
+      .filter((p) => p.type === "text")
+      .map((p) => p.text ?? "")
+      .join("\n");
+  }
+
+  const parts: Exclude<ResponseRequestPayload["input"], string> = [];
+
+  for (const part of content) {
+    if (part.type === "text" && part.text) {
+      parts.push({ type: "input_text", text: part.text });
+    } else if (part.type === "image_url" && part.image_url?.url) {
+      parts.push({ type: "input_image", image_url: part.image_url.url });
+    } else if (part.type === "file" && part.file?.url) {
+      parts.push({
+        type: "input_file",
+        file_data: part.file.url,
+        ...(part.file.name ? { filename: part.file.name } : {}),
+      });
+    }
+  }
+
+  return parts;
 }
 
 export class ChatGPTApi implements LLMApi {
@@ -242,13 +312,14 @@ export class ChatGPTApi implements LLMApi {
       options.config.model.startsWith("o1") ||
       options.config.model.startsWith("o3") ||
       options.config.model.startsWith("o4-mini");
+
+    // Unified GPT-5 model parsing
+    const gpt5Info = parseGpt5Model(options.config.model);
     const isGpt5 =
-      options.config.model.startsWith("gpt-5") &&
-      !options.config.useStandardCompletion;
-    const isGpt52 = options.config.model.startsWith("gpt-5.2");
-    const isGpt5MiniMedium = options.config.model === "gpt-5-mini-medium";
-    const isGpt5MiniLow = options.config.model === "gpt-5-mini-low";
-    const isGpt5Mini = options.config.model.startsWith("gpt-5-mini");
+      gpt5Info.isGpt5 &&
+      !options.config.useStandardCompletion &&
+      !modelConfig.enableTavily;
+
     if (isDalle3) {
       const prompt = getMessageTextContent(
         options.messages.slice(-1)?.pop() as any,
@@ -269,41 +340,30 @@ export class ChatGPTApi implements LLMApi {
         const sessionId = session?.id as string;
 
         const lastMsg = options.messages.slice(-1)[0];
-        const lastMsgText = getMessageTextContent(lastMsg);
+
+        // Build multimodal input for the Responses API when the message
+        // contains images or files; fall back to plain text otherwise.
+        const responsesInput = await buildResponsesInput(lastMsg.content);
 
         // const prevId = this.gpt5PrevIdBySession.get(sessionId);
         const prevId = [...session.messages].reverse().find((m) => m.gpt5PrevId)
           ?.gpt5PrevId;
 
-        // Determine reasoning effort based on model
-        const getReasoningEffort = () => {
-          if (isGpt52) return "xhigh";
-          if (isGpt5MiniMedium) return "medium";
-          if (isGpt5MiniLow) return "low";
-          return "high";
-        };
-
-        // Determine verbosity based on model
-        const getVerbosity = () => {
-          if (isGpt5Mini) return "medium";
-          return "high";
-        };
-
         requestPayload = {
           stream: options.config.stream,
-          model: modelConfig.model,
+          model: gpt5Info.normalizedModel,
           top_p: modelConfig.top_p,
-          instructions: DEFAULT_SYSTEM_TEMPLATE,
+          instructions:
+            DEFAULT_SYSTEM_TEMPLATE +
+            (modelConfig.enableTavily ? "\n\n" + TAVILY_SYSTEM_TEMPLATE : ""),
           // only send latest user turn; rely on previous_response_id for history
-          // using roles is only for when I need to manage the multi turn conversation manually.
-          // { role: lastMsg.role, content: lastMsgText },
-          input: lastMsgText,
+          input: responsesInput,
           reasoning: {
-            effort: getReasoningEffort(),
+            effort: gpt5Info.reasoningEffort!,
             summary: "auto",
           },
           text: {
-            verbosity: getVerbosity(),
+            verbosity: gpt5Info.verbosity!,
           },
           // max_output_tokens: modelConfig.max_tokens,
           store: true,
@@ -312,18 +372,27 @@ export class ChatGPTApi implements LLMApi {
       } else {
         const visionModel = isVisionModel(options.config.model);
         const messages: ChatOptions["messages"] = [];
-        for (const v of options.messages) {
-          const content = visionModel
-            ? await preProcessImageContent(v.content)
+        for (const v of options.messages as ChatMessage[]) {
+          let content = visionModel
+            ? stripFileContent(await preProcessImageContent(v.content))
             : getMessageTextContent(v);
-          if (!(isO1OrO3 && v.role === "system"))
+          if (!(isO1OrO3 && v.role === "system")) {
+            if (v.role === "assistant" && v.tools && v.tools.length > 0) {
+              const toolLogs = v.tools.map(t => {
+                const name = t.function?.name || t.type;
+                const args = typeof t.function?.arguments === 'string' ? t.function?.arguments : JSON.stringify(t.function?.arguments || {});
+                return `Executed: ${name}\nArguments: ${args}`;
+              }).join('\n\n');
+              content = `${content}\n\n<tool_memory>\nTurn ID: ${v.id}\n${toolLogs}\n</tool_memory>`;
+            }
             messages.push({ role: v.role, content });
+          }
         }
 
         const payload: RequestPayload = {
           messages,
           stream: options.config.stream,
-          model: modelConfig.model,
+          model: gpt5Info.normalizedModel,
           temperature: !isO1OrO3 ? modelConfig.temperature : 1,
           presence_penalty: !isO1OrO3 ? modelConfig.presence_penalty : 0,
           frequency_penalty: !isO1OrO3 ? modelConfig.frequency_penalty : 0,
@@ -331,6 +400,23 @@ export class ChatGPTApi implements LLMApi {
           ...(modelConfig.providerName == ServiceProvider.Anthropic && {
             include_reasoning: true,
           }),
+          ...(gpt5Info.reasoningEffort && {
+            // Chat Completions uses top-level reasoning_effort string;
+            // Responses API uses nested reasoning object (handled in isGpt5 branch above)
+            reasoning_effort: gpt5Info.reasoningEffort,
+          }),
+          ...(options.config.responseJsonSchema
+            ? {
+                response_format: {
+                  type: "json_schema",
+                  json_schema: {
+                    name: "extraction",
+                    schema: options.config.responseJsonSchema,
+                    strict: false,
+                  },
+                },
+              }
+            : {}),
         };
 
         if (isO1OrO3) {
@@ -342,13 +428,22 @@ export class ChatGPTApi implements LLMApi {
             content: "Formatting re-enabled",
           });
 
-          // o1/o3 uses max_completion_tokens to control the number of tokens (https://platform.openai.com/docs/guides/reasoning#controlling-costs)
+          // o1/o3 uses max_completion_tokens (0 = let API decide)
+          if (modelConfig.max_tokens > 0) {
+            payload.max_completion_tokens = modelConfig.max_tokens;
+          }
+        }
+
+        // gpt-5 also uses max_completion_tokens
+        if (gpt5Info.isGpt5 && modelConfig.max_tokens > 0) {
           payload.max_completion_tokens = modelConfig.max_tokens;
         }
 
-        // add max_tokens to vision model
-        if (visionModel && !isO1OrO3) {
-          payload.max_tokens = Math.max(modelConfig.max_tokens, 4000);
+        // add max_tokens to vision model (but not o1/o3/gpt-5 which use max_completion_tokens)
+        if (visionModel && !isO1OrO3 && !gpt5Info.isGpt5) {
+          if (modelConfig.max_tokens > 0) {
+            payload.max_tokens = Math.max(modelConfig.max_tokens, 4000);
+          }
         }
         requestPayload = payload;
       }
@@ -396,11 +491,18 @@ export class ChatGPTApi implements LLMApi {
       }
       if (shouldStream) {
         let index = -1;
-        const [tools, funcs] = usePluginStore
+        let [tools, funcs] = usePluginStore
           .getState()
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
-          );
+          ) as [any[], Record<string, Function>];
+
+        if (modelConfig.enableTavily) {
+          tools.push(tavilyToolDeclaration as any);
+          funcs[TAVILY_TOOL_NAME] = createTavilyHandler(modelConfig);
+          tools.push(tavilyRetrieveDeclaration as any);
+          funcs[TAVILY_RETRIEVE_TOOL_NAME] = createTavilyRetrieveHandler();
+        }
 
         // separate SSE parsers for gpt-5 vs others
         const session = useChatStore.getState().currentSession();
@@ -464,7 +566,7 @@ export class ChatGPTApi implements LLMApi {
           return { isThinking: false, content: "" };
         };
 
-        const parseGpt5SSE = (text: string) => {
+        const parseGpt5SSE = (text: string, runTools: ChatMessageTool[]) => {
           // Responses API streaming events
           const json = JSON.parse(text);
 
@@ -475,6 +577,40 @@ export class ChatGPTApi implements LLMApi {
             (json.response?.id || json.id)
           ) {
             nextPrevId = json.response?.id || json.id;
+            return { isThinking: false, content: "" };
+          }
+
+          // --- Function call handling ---
+          // A new function_call output item was added
+          if (
+            json.type === "response.output_item.added" &&
+            json.item?.type === "function_call"
+          ) {
+            index += 1;
+            runTools.push({
+              id: json.item.call_id || json.item.id,
+              type: "function",
+              function: {
+                name: json.item.name,
+                arguments: "",
+              },
+            });
+            return { isThinking: false, content: "" };
+          }
+
+          // Incremental function call arguments
+          if (
+            json.type === "response.function_call_arguments.delta" &&
+            typeof json.delta === "string"
+          ) {
+            if (index >= 0 && runTools[index]) {
+              runTools[index].function!.arguments += json.delta;
+            }
+            return { isThinking: false, content: "" };
+          }
+
+          // Function call arguments complete (no action needed, finish() handles execution)
+          if (json.type === "response.function_call_arguments.done") {
             return { isThinking: false, content: "" };
           }
 
@@ -512,19 +648,29 @@ export class ChatGPTApi implements LLMApi {
           return { isThinking: false, content: "" };
         };
 
-        const parseSSE = isGpt5
-          ? (text: string, _runTools: ChatMessageTool[]) => parseGpt5SSE(text)
-          : parseCompletionsSSE;
+        const parseSSE = isGpt5 ? parseGpt5SSE : parseCompletionsSSE;
 
         // wrap onFinish to stash the response id for gpt-5
         const originalOnFinish = options.onFinish;
         const wrappedOptions = {
           ...options,
-          onFinish: (message: any, res: any) => {
+          onFinish: (
+            message: string,
+            res: Response,
+            thinkingText?: string,
+            timingInfo?: TimingInfo,
+          ) => {
             if (isGpt5 && nextPrevId) {
-              originalOnFinish?.(message, res, nextPrevId);
+              originalOnFinish(
+                message,
+                res,
+                thinkingText,
+                timingInfo,
+                nextPrevId,
+              );
+            } else {
+              originalOnFinish(message, res, thinkingText, timingInfo);
             }
-            originalOnFinish?.(message, res);
           },
         };
 
@@ -538,20 +684,42 @@ export class ChatGPTApi implements LLMApi {
           controller,
           parseSSE,
           (
-            requestPayload: RequestPayload,
+            requestPayload: any,
             toolCallMessage: any,
             toolCallResult: any[],
           ) => {
             // reset index value
             index = -1;
-            // @ts-ignore
-            requestPayload?.messages?.splice(
+
+            if (isGpt5) {
+              // Responses API: send function_call_output items as new input,
+              // referencing the previous response for conversation continuity.
+              const rp = requestPayload as ResponseRequestPayload;
+              rp.input = toolCallResult.map((r) => ({
+                type: "function_call_output" as const,
+                call_id: r.tool_call_id,
+                output:
+                  typeof r.content === "string"
+                    ? r.content
+                    : JSON.stringify(r.content),
+              }));
+              // Chain off the response that produced the tool calls
+              if (nextPrevId) {
+                rp.previous_response_id = nextPrevId;
+              }
+              // Instructions are not persisted across turns via previous_response_id,
+              // so they must remain in the payload on follow-up tool executions.
+            } else {
+              // Chat Completions: append assistant tool_calls + tool results to messages
               // @ts-ignore
-              requestPayload?.messages?.length,
-              0,
-              toolCallMessage,
-              ...toolCallResult,
-            );
+              requestPayload?.messages?.splice(
+                // @ts-ignore
+                requestPayload?.messages?.length,
+                0,
+                toolCallMessage,
+                ...toolCallResult,
+              );
+            }
           },
           wrappedOptions,
         );
@@ -579,7 +747,7 @@ export class ChatGPTApi implements LLMApi {
         const newGpt5Id = isGpt5 && resJson?.id ? resJson.id : undefined;
 
         const message = await this.extractMessage(resJson);
-        options.onFinish(message, res, newGpt5Id);
+        options.onFinish(message, res, undefined, undefined, newGpt5Id);
       }
     } catch (e) {
       console.log("[Request] failed to make a chat request", e);

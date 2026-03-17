@@ -76,7 +76,7 @@ const vi: PartialLocaleType = {
       Masks: "Tất cả mặt nạ",
       Clear: "Xóa cuộc trò chuyện",
       Settings: "Cài đặt trò chuyện",
-      UploadImage: "Tải lên hình ảnh",
+      UploadFile: "Tải lên",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

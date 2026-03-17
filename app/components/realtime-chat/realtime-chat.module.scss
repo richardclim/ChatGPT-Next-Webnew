@@ -7,7 +7,6 @@
   flex-direction: column;
   height: 100%;
   padding: 20px;
-  box-sizing: border-box;
   .circle-mic {
     width: 150px;
     height: 150px;
@@ -28,7 +27,6 @@
     width: 100%;
     position: absolute;
     bottom: 20px;
-    box-sizing: border-box;
     padding: 0 20px;
   }
 

@@ -1,0 +1,642 @@
+@import "../styles/animation.scss";
+
+.container {
+  padding: 20px;
+  overflow: auto;
+  height: 100%;
+  background-color: var(--gray);
+  color: var(--black);
+  // Override the global body { user-select: none } so text can be selected/highlighted
+  user-select: text;
+  // Ensure fixed-position overlays (.loading-overlay) are relative to viewport,
+  // not affected by any parent transforms or filters
+  isolation: isolate;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 15px;
+
+  .title {
+    font-size: 20px;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    .icon {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--primary);
+      border-radius: 8px;
+      color: white;
+    }
+  }
+
+  .db-path {
+    font-size: 11px;
+    opacity: 0.6;
+    font-family: monospace;
+    background: var(--white);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: var(--border-in-light);
+  }
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  align-items: center;
+
+  .search-input {
+    flex: 1;
+    min-width: 200px;
+    max-width: 400px;
+    padding: 10px 15px;
+    border: var(--border-in-light);
+    border-radius: 10px;
+    background: var(--white);
+    color: var(--black);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+
+    &:focus {
+      border-color: var(--primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    &::placeholder {
+      opacity: 0.5;
+    }
+  }
+
+  .filter-select {
+    padding: 10px 15px;
+    border: var(--border-in-light);
+    border-radius: 10px;
+    background: var(--white);
+    color: var(--black);
+    font-size: 14px;
+    cursor: pointer;
+    min-width: 150px;
+
+    &:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+  }
+
+  .refresh-btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    min-width: 120px;
+
+    &:hover {
+      filter: brightness(1.1);
+    }
+
+    &:focus-visible {
+      outline: 2px solid white;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.stats-bar {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+
+  .stat {
+    background: var(--white);
+    border: var(--border-in-light);
+    border-radius: 10px;
+    padding: 12px 20px;
+    box-shadow: var(--card-shadow);
+
+    .stat-label {
+      font-size: 11px;
+      opacity: 0.6;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--primary);
+    }
+  }
+}
+
+.records-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.record-card {
+  background: var(--white);
+  border: var(--border-in-light);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  animation: slide-in ease 0.3s;
+
+  .record-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--gray);
+    border-bottom: var(--border-in-light);
+    gap: 10px;
+    flex-wrap: wrap;
+
+    .record-meta {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      flex-wrap: wrap;
+
+      .record-index {
+        background: var(--primary);
+        color: white;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      .record-id {
+        font-family: monospace;
+        font-size: 12px;
+        opacity: 0.7;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .record-date {
+        font-size: 12px;
+        opacity: 0.6;
+      }
+    }
+
+    .record-badges {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+
+      .badge {
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 500;
+
+        &.session {
+          background: var(--second);
+          color: var(--primary);
+          border: 1px solid var(--primary);
+        }
+
+        &.vector {
+          background: rgba(100, 200, 100, 0.15);
+          color: rgb(60, 140, 60);
+          border: 1px solid rgba(60, 140, 60, 0.3);
+        }
+      }
+
+      // Split-button session badge
+      .session-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        border-radius: 6px;
+        border: 1px solid var(--primary);
+        background: var(--second);
+        color: var(--primary);
+        font-size: 11px;
+        font-weight: 500;
+        overflow: visible; // let dropdown overflow
+
+        .session-btn-label {
+          padding: 4px 8px;
+          cursor: pointer;
+          transition: background 0.15s;
+          white-space: nowrap;
+          max-width: 160px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+
+          &:hover {
+            background: rgba(var(--primary-rgb, 84 114 239) / 0.12);
+            border-radius: 6px;
+          }
+          &:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: -2px;
+            border-radius: 5px 0 0 5px;
+          }
+        }
+
+        // Divider only shown when chevron is present
+        &.has-chevron .session-btn-label {
+          border-right: 1px solid var(--primary);
+          border-radius: 5px 0 0 5px;
+        }
+
+        .session-btn-chevron {
+          padding: 4px 6px;
+          cursor: pointer;
+          border-radius: 0 5px 5px 0;
+          transition: background 0.15s;
+          font-size: 9px;
+          line-height: 1;
+
+          &:hover {
+            background: rgba(var(--primary-rgb, 84 114 239) / 0.12);
+          }
+          &:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: -2px;
+            border-radius: 0 5px 5px 0;
+          }
+        }
+
+        // Dropdown panel
+        .session-dropdown {
+          position: absolute;
+          top: calc(100% + 4px);
+          right: 0;
+          min-width: 180px;
+          max-width: 280px;
+          background: var(--white);
+          border: var(--border-in-light);
+          border-radius: 8px;
+          box-shadow: var(--card-shadow);
+          z-index: 100;
+          overflow: hidden;
+          animation: slide-in ease 0.15s;
+
+          .session-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--black);
+            cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            text-align: left;
+            width: 100%;
+            border: none;
+            background: transparent;
+
+            &:hover {
+              background: var(--hover-color);
+              color: var(--primary);
+            }
+            &:focus-visible {
+              outline: 2px solid var(--primary);
+              outline-offset: -2px;
+            }
+            &:not(:last-child) {
+              border-bottom: var(--border-in-light);
+            }
+
+            // Dim unavailable (deleted) sessions
+            &.unavailable {
+              opacity: 0.45;
+              cursor: not-allowed;
+              &:hover {
+                background: transparent;
+                color: var(--black);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .record-body {
+    padding: 16px;
+
+    .record-content {
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 300px;
+      overflow: auto;
+    }
+
+    .record-keywords {
+      margin-top: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+
+      .keyword {
+        background: var(--second);
+        color: var(--primary);
+        padding: 4px 10px;
+        border-radius: 15px;
+        font-size: 12px;
+      }
+    }
+  }
+
+  .record-expand-toggle {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    background: var(--gray);
+    color: var(--primary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+
+    &:hover {
+      background: var(--hover-color);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: -2px;
+    }
+  }
+}
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  margin-top: 20px;
+  padding: 15px;
+  background: var(--white);
+  border: var(--border-in-light);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+
+  .page-btn {
+    padding: 8px 16px;
+    border: var(--border-in-light);
+    border-radius: 8px;
+    background: var(--white);
+    color: var(--black);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover:not(:disabled) {
+      background: var(--hover-color);
+      border-color: var(--primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+
+  .page-info {
+    font-size: 14px;
+    opacity: 0.8;
+
+    .current-page {
+      font-weight: bold;
+      color: var(--primary);
+    }
+  }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  background: var(--white);
+  border: var(--border-in-light);
+  border-radius: 10px;
+  box-shadow: var(--card-shadow);
+
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 15px;
+    opacity: 0.3;
+  }
+
+  .empty-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  .empty-message {
+    font-size: 14px;
+    opacity: 0.6;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-in-light);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+.error-state {
+  text-align: center;
+  padding: 40px 20px;
+  background: rgba(255, 100, 100, 0.1);
+  border: 1px solid rgba(255, 100, 100, 0.3);
+  border-radius: 10px;
+  color: rgb(200, 50, 50);
+
+  .error-title {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  .error-message {
+    font-size: 14px;
+    opacity: 0.8;
+    font-family: monospace;
+  }
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(2px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+
+  .spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid var(--border-in-light);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+.delete-btn {
+  padding: 4px 8px;
+  border: 1px solid rgba(200, 50, 50, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 100, 100, 0.1);
+  color: rgb(200, 50, 50);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 8px;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 100, 100, 0.25);
+    border-color: rgba(200, 50, 50, 0.5);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgb(200, 50, 50);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// Accessibility: Respect user's motion preferences
+@media (prefers-reduced-motion: reduce) {
+  .record-card {
+    animation: none;
+  }
+
+  .spinner {
+    animation: none;
+    // Provide a static indicator instead
+    border-top-color: var(--primary);
+    opacity: 0.7;
+  }
+
+  .search-input,
+  .filter-select,
+  .refresh-btn,
+  .page-btn,
+  .delete-btn,
+  .record-expand-toggle {
+    transition: none;
+  }
+}
+
+// Responsive adjustments
+@media screen and (max-width: 600px) {
+  .container {
+    padding: 15px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+
+    .db-path {
+      display: none;
+    }
+  }
+
+  .controls {
+    .search-input {
+      min-width: 100%;
+    }
+  }
+
+  .stats-bar {
+    .stat {
+      flex: 1;
+      min-width: calc(50% - 10px);
+    }
+  }
+
+  .record-card {
+    .record-header {
+      .record-meta {
+        .record-id {
+          max-width: 120px;
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { preload } from "swr";
 
 import styles from "./settings.module.scss";
 
@@ -7,6 +8,8 @@ import AddIcon from "../icons/add.svg";
 import CloseIcon from "../icons/close.svg";
 import CopyIcon from "../icons/copy.svg";
 import ClearIcon from "../icons/clear.svg";
+import CancelIcon from "../icons/cancel.svg";
+import DeleteIcon from "../icons/delete.svg";
 import LoadingIcon from "../icons/three-dots.svg";
 import EditIcon from "../icons/edit.svg";
 import FireIcon from "../icons/fire.svg";
@@ -28,10 +31,16 @@ import {
   PasswordInput,
   Popover,
   Select,
+  ChipInput,
+  Toggle,
+  Card,
   showConfirm,
+  showPrompt,
   showToast,
 } from "./ui-lib";
 import { ModelConfigList } from "./model-config";
+import { ModelSelect } from "./model-select";
+import type { GroupedModels } from "./model-select";
 
 import { IconButton } from "./button";
 import {
@@ -42,6 +51,10 @@ import {
   useAccessStore,
   useAppConfig,
 } from "../store";
+
+import { useAllModels } from "../utils/hooks";
+import { getModelProvider } from "../utils/model";
+import { useMemoryStore } from "../store/memory";
 
 import Locale, {
   AllLangs,
@@ -85,10 +98,400 @@ import { Avatar, AvatarPicker } from "./emoji";
 import { getClientConfig } from "../config/client";
 import { useSyncStore } from "../store/sync";
 import { nanoid } from "nanoid";
+import { groupBy } from "lodash-es";
 import { useMaskStore } from "../store/mask";
 import { ProviderType } from "../utils/cloud";
 import { TTSConfigList } from "./tts-config";
 import { RealtimeConfigList } from "./realtime-chat/realtime-config";
+
+function EditUserProfileModal(props: { onClose: () => void }) {
+  const memoryStore = useMemoryStore();
+
+  // STABLE STATE: using ID-based arrays to prevent focus issues when renaming
+  type FieldType = "array" | "text" | "boolean";
+  type Field = { id: string; key: string; value: any; fieldType: FieldType };
+  type Domain = { id: string; name: string; fields: Field[] };
+
+  // Helper to infer field type from existing value
+  const inferFieldType = (value: any): FieldType => {
+    if (Array.isArray(value)) return "array";
+    if (typeof value === "boolean") return "boolean";
+    return "text";
+  };
+
+  const [domains, setDomains] = useState<Domain[]>(() => {
+    const raw = JSON.parse(JSON.stringify(memoryStore.content));
+    const result: Domain[] = [];
+
+    // 1. Handle existing data
+    Object.entries(raw).forEach(([domainKey, domainValue]) => {
+      // If it's a domain object (not an array)
+      if (
+        typeof domainValue === "object" &&
+        domainValue !== null &&
+        !Array.isArray(domainValue)
+      ) {
+        const fields: Field[] = Object.entries(domainValue).map(([k, v]) => ({
+          id: nanoid(),
+          key: k,
+          value: v,
+          fieldType: inferFieldType(v),
+        }));
+        result.push({ id: nanoid(), name: domainKey, fields });
+      }
+    });
+
+    // 2. Handle flat data (migration) -> Put into "General" or create it if missing
+    const flatFields: Field[] = [];
+    Object.entries(raw).forEach(([k, v]) => {
+      if (typeof v !== "object" || v === null || Array.isArray(v)) {
+        flatFields.push({
+          id: nanoid(),
+          key: k,
+          value: v,
+          fieldType: inferFieldType(v),
+        });
+      }
+    });
+
+    if (flatFields.length > 0) {
+      const general = result.find((d) => d.name === "General");
+      if (general) {
+        general.fields.push(...flatFields);
+      } else {
+        result.unshift({ id: nanoid(), name: "General", fields: flatFields });
+      }
+    }
+
+    // Ensure at least one domain exists to start adding stuff if empty
+    if (result.length === 0) {
+      result.push({ id: nanoid(), name: "General", fields: [] });
+    }
+
+    return result;
+  });
+
+  // Track newly added field for auto-focus
+  const [newFieldId, setNewFieldId] = useState<string | null>(null);
+  // Refs for focus management
+  const keyInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const chipInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  // Auto-focus key input when new field is added
+  useEffect(() => {
+    if (newFieldId && keyInputRefs.current[newFieldId]) {
+      keyInputRefs.current[newFieldId]?.focus();
+      keyInputRefs.current[newFieldId]?.select();
+      setNewFieldId(null);
+    }
+  }, [newFieldId, domains]);
+
+  const handleSave = () => {
+    const content: Record<string, any> = {};
+    domains.forEach((d) => {
+      const domainContent: Record<string, any> = {};
+      d.fields.forEach((f) => {
+        if (f.key.trim()) {
+          domainContent[f.key.trim()] = f.value;
+        }
+      });
+      if (Object.keys(domainContent).length > 0 || d.name.trim()) {
+        content[d.name.trim() || "Untitled"] = domainContent;
+      }
+    });
+    memoryStore.updateContent(content);
+    props.onClose();
+  };
+
+  // --- Actions ---
+
+  const addDomain = () => {
+    setDomains((prev) => [
+      ...prev,
+      { id: nanoid(), name: "New Section", fields: [] },
+    ]);
+  };
+
+  const removeDomain = (id: string) => {
+    setDomains((prev) => prev.filter((d) => d.id !== id));
+  };
+
+  const updateDomainName = (id: string, name: string) => {
+    setDomains((prev) => prev.map((d) => (d.id === id ? { ...d, name } : d)));
+  };
+
+  const addField = (domainId: string) => {
+    const fieldId = nanoid();
+    setDomains((prev) =>
+      prev.map((d) => {
+        if (d.id === domainId) {
+          return {
+            ...d,
+            fields: [
+              ...d.fields,
+              {
+                id: fieldId,
+                key: "",
+                value: [],
+                fieldType: "array" as FieldType,
+              },
+            ],
+          };
+        }
+        return d;
+      }),
+    );
+    setNewFieldId(fieldId);
+  };
+
+  const removeField = (domainId: string, fieldId: string) => {
+    setDomains((prev) =>
+      prev.map((d) => {
+        if (d.id === domainId) {
+          return { ...d, fields: d.fields.filter((f) => f.id !== fieldId) };
+        }
+        return d;
+      }),
+    );
+  };
+
+  const updateFieldKey = (domainId: string, fieldId: string, key: string) => {
+    setDomains((prev) =>
+      prev.map((d) => {
+        if (d.id !== domainId) return d;
+        return {
+          ...d,
+          fields: d.fields.map((f) => (f.id === fieldId ? { ...f, key } : f)),
+        };
+      }),
+    );
+  };
+
+  const updateFieldValue = (domainId: string, fieldId: string, value: any) => {
+    setDomains((prev) =>
+      prev.map((d) => {
+        if (d.id !== domainId) return d;
+        return {
+          ...d,
+          fields: d.fields.map((f) => (f.id === fieldId ? { ...f, value } : f)),
+        };
+      }),
+    );
+  };
+
+  const updateFieldType = (
+    domainId: string,
+    fieldId: string,
+    newType: FieldType,
+  ) => {
+    setDomains((prev) =>
+      prev.map((d) => {
+        if (d.id !== domainId) return d;
+        return {
+          ...d,
+          fields: d.fields.map((f) => {
+            if (f.id !== fieldId) return f;
+            // Convert value to match new type
+            let newValue: any;
+            if (newType === "array") {
+              newValue = Array.isArray(f.value)
+                ? f.value
+                : f.value
+                ? [String(f.value)]
+                : [];
+            } else if (newType === "boolean") {
+              newValue = Boolean(f.value);
+            } else {
+              newValue = Array.isArray(f.value)
+                ? f.value.join(", ")
+                : String(f.value ?? "");
+            }
+            return { ...f, fieldType: newType, value: newValue };
+          }),
+        };
+      }),
+    );
+  };
+
+  const handleKeyInputKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    fieldId: string,
+  ) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      // Focus the ChipInput for this field
+      chipInputRefs.current[fieldId]?.focus();
+    }
+  };
+
+  return (
+    <div className="modal-mask">
+      <Modal
+        title={Locale.UserProfile.Edit}
+        onClose={props.onClose}
+        actions={[
+          <IconButton
+            key="cancel"
+            text={Locale.UI.Cancel}
+            onClick={props.onClose}
+            bordered
+            icon={<CancelIcon />}
+          />,
+          <IconButton
+            key="confirm"
+            text={Locale.UI.Confirm}
+            type="primary"
+            onClick={handleSave}
+            bordered
+            icon={<ConfirmIcon />}
+          />,
+        ]}
+      >
+        <div className={styles["user-profile-editor"]}>
+          {domains.map((domain) => (
+            <Card key={domain.id} className={styles["user-profile-card"]}>
+              <div className={styles["user-profile-domain-header"]}>
+                <div style={{ flexGrow: 1 }}>
+                  <input
+                    className={styles["user-profile-domain-title"]}
+                    value={domain.name}
+                    onChange={(e) =>
+                      updateDomainName(domain.id, e.target.value)
+                    }
+                    placeholder="Domain Name"
+                  />
+                </div>
+                <div className={styles["user-profile-actions"]}>
+                  <IconButton
+                    icon={<AddIcon />}
+                    onClick={() => addField(domain.id)}
+                    bordered
+                    className={styles["mini-icon-button"]}
+                    title="Add Facts"
+                  />
+                  <IconButton
+                    icon={<DeleteIcon />}
+                    onClick={() => removeDomain(domain.id)}
+                    bordered
+                    className={styles["mini-icon-button"]}
+                    title="Delete Section"
+                  />
+                </div>
+              </div>
+
+              <div className={styles["user-profile-fields"]}>
+                {domain.fields.map((field) => (
+                  <div key={field.id} className={styles["user-profile-field"]}>
+                    <div className={styles["user-profile-field-header"]}>
+                      <input
+                        ref={(el) => {
+                          keyInputRefs.current[field.id] = el;
+                        }}
+                        className={styles["user-profile-field-label"]}
+                        value={field.key}
+                        onChange={(e) =>
+                          updateFieldKey(domain.id, field.id, e.target.value)
+                        }
+                        onKeyDown={(e) => handleKeyInputKeyDown(e, field.id)}
+                        placeholder="Fact Name"
+                      />
+                      <select
+                        className={styles["user-profile-field-type"]}
+                        value={field.fieldType}
+                        onChange={(e) =>
+                          updateFieldType(
+                            domain.id,
+                            field.id,
+                            e.target.value as FieldType,
+                          )
+                        }
+                      >
+                        <option value="array">Tags</option>
+                        <option value="text">Text</option>
+                        <option value="boolean">Toggle</option>
+                      </select>
+                      <div
+                        className={styles["user-profile-delete-field"]}
+                        onClick={() => removeField(domain.id, field.id)}
+                        title="Delete Field"
+                      >
+                        <DeleteIcon width={16} height={16} />
+                      </div>
+                    </div>
+
+                    <div className={styles["user-profile-field-row"]}>
+                      <div className={styles["user-profile-field-input"]}>
+                        {field.fieldType === "array" ? (
+                          <ChipInput
+                            value={field.value}
+                            onChange={(v) =>
+                              updateFieldValue(domain.id, field.id, v)
+                            }
+                            inputRef={{
+                              get current() {
+                                return chipInputRefs.current[field.id];
+                              },
+                              set current(el) {
+                                chipInputRefs.current[field.id] = el;
+                              },
+                            }}
+                          />
+                        ) : field.fieldType === "boolean" ? (
+                          <Toggle
+                            checked={field.value}
+                            onChange={(v) =>
+                              updateFieldValue(domain.id, field.id, v)
+                            }
+                          />
+                        ) : (
+                          <Input
+                            value={field.value}
+                            onChange={(e) =>
+                              updateFieldValue(
+                                domain.id,
+                                field.id,
+                                e.currentTarget.value,
+                              )
+                            }
+                            rows={1}
+                            autoHeight
+                          />
+                        )}
+                      </div>
+                      <div
+                        className={styles["user-profile-delete-field"]}
+                        onClick={() => removeField(domain.id, field.id)}
+                        title="Delete Field"
+                      >
+                        <DeleteIcon width={16} height={16} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {domain.fields.length === 0 && (
+                  <div className={styles["empty-domain-hint"]}>
+                    No facts yet. Click + to add one.
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+
+          <div className={styles["user-profile-footer"]}>
+            <IconButton
+              icon={<AddIcon />}
+              text="Add New Section"
+              onClick={addDomain}
+              bordered
+              className={styles["full-width-button"]}
+            />
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
 
 function EditPromptModal(props: { id: string; onClose: () => void }) {
   const promptStore = usePromptStore();
@@ -583,6 +986,11 @@ function SyncItems() {
 
 export function Settings() {
   const navigate = useNavigate();
+  const allModels = useAllModels();
+  const groupModels = groupBy(
+    allModels.filter((v) => v.available),
+    "provider.providerName",
+  ) as unknown as GroupedModels;
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const config = useAppConfig();
   const updateConfig = config.update;
@@ -645,6 +1053,7 @@ export function Settings() {
   const builtinCount = SearchService.count.builtin;
   const customCount = promptStore.getUserPrompts().length ?? 0;
   const [shouldShowPromptModal, setShowPromptModal] = useState(false);
+  const [shouldShowUserProfileModal, setShowUserProfileModal] = useState(false);
 
   const showUsage = accessStore.isAuthorized();
   useEffect(() => {
@@ -1924,6 +2333,186 @@ export function Settings() {
               config.update((config) => (config.modelConfig = modelConfig));
             }}
           />
+        </List>
+
+        <List>
+          <ListItem
+            title={Locale.UserProfile.Enable}
+            subTitle={Locale.UserProfile.EnableSubTitle}
+          >
+            <input
+              aria-label={Locale.UserProfile.Enable}
+              type="checkbox"
+              checked={useMemoryStore((state) => state.enabled)}
+              onChange={(e) =>
+                useMemoryStore.getState().setEnabled(e.currentTarget.checked)
+              }
+            ></input>
+          </ListItem>
+          <ListItem
+            title={Locale.UserProfile.Profile}
+            subTitle={Locale.UserProfile.ProfileSubTitle}
+          >
+            <IconButton
+              icon={<EditIcon />}
+              text={Locale.UserProfile.Edit}
+              onClick={() => setShowUserProfileModal(true)}
+            />
+          </ListItem>
+          {shouldShowUserProfileModal && (
+            <EditUserProfileModal
+              onClose={() => setShowUserProfileModal(false)}
+            />
+          )}
+          <ListItem
+            title={Locale.UserProfile.Model}
+            subTitle={Locale.UserProfile.ModelSubTitle}
+          >
+            <ModelSelect
+              aria-label={Locale.UserProfile.Model}
+              value={`${useMemoryStore(
+                (state) => state.memoryModelConfig.model,
+              )}@${useMemoryStore(
+                (state) => state.memoryModelConfig.providerName,
+              )}`}
+              models={groupModels}
+              onChange={(val) => {
+                const [model, providerName] = getModelProvider(val);
+                useMemoryStore.getState().updateMemoryModelConfig((config) => {
+                  config.model = model;
+                  config.providerName = providerName as ServiceProvider;
+                });
+              }}
+            />
+          </ListItem>
+          <ListItem
+            title={Locale.UserProfile.InjectionDisplay.Title}
+            subTitle={Locale.UserProfile.InjectionDisplay.SubTitle}
+          >
+            <input
+              aria-label={Locale.UserProfile.InjectionDisplay.Title}
+              type="checkbox"
+              checked={useMemoryStore(
+                (state) => state.enableContextInjectionDisplay,
+              )}
+              onChange={(e) =>
+                useMemoryStore
+                  .getState()
+                  .setEnableContextInjectionDisplay(e.currentTarget.checked)
+              }
+            ></input>
+          </ListItem>
+          <ListItem
+            title={Locale.UserProfile.VectorDebug.Title}
+            subTitle={Locale.UserProfile.VectorDebug.SubTitle}
+          >
+            <IconButton
+              icon={<EyeIcon />}
+              onMouseEnter={() => {
+                preload("/api/vector/debug?limit=20&offset=0", (url: string) =>
+                  fetch(url).then((res) => res.json()),
+                );
+              }}
+              onClick={() => {
+                navigate(Path.VectorDebug);
+              }}
+            />
+          </ListItem>
+        </List>
+
+        <List>
+          <ListItem
+            title="Enable Tavily Search"
+            subTitle="Allow the model to autonomously search the web for real-time information"
+          >
+            <input
+              aria-label="Enable Tavily Search"
+              type="checkbox"
+              checked={config.modelConfig.enableTavily}
+              onChange={(e) =>
+                config.update(
+                  (config) =>
+                    (config.modelConfig.enableTavily = e.currentTarget.checked),
+                )
+              }
+            ></input>
+          </ListItem>
+          <ListItem
+            title="Tavily API Key"
+            subTitle="Your Tavily Search API Key"
+          >
+            <PasswordInput
+              aria-label="Tavily API Key"
+              value={accessStore.tavilyApiKey}
+              type="text"
+              placeholder="tvly-..."
+              onChange={(e) => {
+                accessStore.update(
+                  (access) => (access.tavilyApiKey = e.currentTarget.value),
+                );
+              }}
+            />
+          </ListItem>
+          <ListItem
+            title="Tavily Search Type"
+            subTitle="Choose between Basic, Advanced, or Extract mode"
+          >
+            <Select
+              aria-label="Tavily Search Type"
+              value={config.modelConfig.tavilySearchType}
+              onChange={(e) => {
+                config.update(
+                  (config) =>
+                    (config.modelConfig.tavilySearchType = e.target
+                      .value as any),
+                );
+              }}
+            >
+              <option value="basic">Basic Search</option>
+              <option value="advanced">Advanced Search</option>
+              <option value="extract">Extract API</option>
+            </Select>
+          </ListItem>
+          <ListItem
+            title="Tavily Max Results"
+            subTitle="Maximum number of search results to fetch per query"
+          >
+            <InputRange
+              aria="Tavily Max Results"
+              title={`${config.modelConfig.tavilyMaxResults}`}
+              value={config.modelConfig.tavilyMaxResults}
+              min="1"
+              max="20"
+              step="1"
+              onChange={(e) => {
+                config.update(
+                  (config) =>
+                    (config.modelConfig.tavilyMaxResults =
+                      parseInt(e.currentTarget.value) || 5),
+                );
+              }}
+            />
+          </ListItem>
+          <ListItem
+            title="Max Chunks Per Source"
+            subTitle="Maximum chunk depth when including raw content"
+          >
+            <InputRange
+              aria="Max Chunks Per Source"
+              title={`${config.modelConfig.tavilyMaxChunksPerSource}`}
+              value={config.modelConfig.tavilyMaxChunksPerSource}
+              min="1"
+              max="20"
+              step="1"
+              onChange={(e) => {
+                config.update(
+                  (config) =>
+                    (config.modelConfig.tavilyMaxChunksPerSource =
+                      parseInt(e.currentTarget.value) || 5),
+                );
+              }}
+            />
+          </ListItem>
         </List>
 
         {shouldShowPromptModal && (

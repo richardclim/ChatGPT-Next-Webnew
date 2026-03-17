@@ -11,6 +11,7 @@ import {
   useAccessStore,
   useChatStore,
 } from "../store";
+import { TimingInfo } from "../store/chat";
 import { ChatGPTApi, DalleRequestPayload } from "./platforms/openai";
 import { GeminiProApi } from "./platforms/google";
 import { ClaudeApi } from "./platforms/anthropic";
@@ -34,10 +35,15 @@ export const TTSModels = ["tts-1", "tts-1-hd"] as const;
 export type ChatModel = ModelType;
 
 export interface MultimodalContent {
-  type: "text" | "image_url";
+  type: "text" | "image_url" | "file";
   text?: string;
   image_url?: {
     url: string;
+  };
+  file?: {
+    url: string; // data URL (data:application/pdf;base64,...)
+    name: string;
+    mimeType: string;
   };
 }
 
@@ -62,6 +68,17 @@ export interface LLMConfig {
   size?: DalleRequestPayload["size"];
   quality?: DalleRequestPayload["quality"];
   style?: DalleRequestPayload["style"];
+  useStandardCompletion?: boolean;
+  responseMimeType?: string;
+  responseJsonSchema?: object;
+  response_format?: object;
+  /**
+   * If true, the model will still reason internally but the reasoning
+   * content/summary will not be included in the response.
+   * Useful for background tasks where reasoning improves quality but
+   * you only need the final result.
+   */
+  suppressReasoningOutput?: boolean;
 }
 
 export interface SpeechOptions {
@@ -81,6 +98,8 @@ export interface ChatOptions {
   onFinish: (
     message: string,
     responseRes: Response,
+    thinkingText?: string,
+    timingInfo?: TimingInfo,
     gpt5PrevId?: string,
   ) => void;
   onError?: (err: Error) => void;
@@ -265,19 +284,18 @@ export function getHeaders(
     const modelConfig = chatStore.currentSession().mask.modelConfig;
     const providerName = forceProvider ?? modelConfig.providerName;
     const isGoogle = providerName === ServiceProvider.Google;
-    const isAzure = modelConfig.providerName === ServiceProvider.Azure;
-    const isAnthropic = modelConfig.providerName === ServiceProvider.Anthropic;
-    const isBaidu = modelConfig.providerName == ServiceProvider.Baidu;
-    const isByteDance = modelConfig.providerName === ServiceProvider.ByteDance;
-    const isAlibaba = modelConfig.providerName === ServiceProvider.Alibaba;
-    const isMoonshot = modelConfig.providerName === ServiceProvider.Moonshot;
-    const isIflytek = modelConfig.providerName === ServiceProvider.Iflytek;
-    const isDeepSeek = modelConfig.providerName === ServiceProvider.DeepSeek;
-    const isXAI = modelConfig.providerName === ServiceProvider.XAI;
-    const isChatGLM = modelConfig.providerName === ServiceProvider.ChatGLM;
-    const isSiliconFlow =
-      modelConfig.providerName === ServiceProvider.SiliconFlow;
-    const isAI302 = modelConfig.providerName === ServiceProvider["302.AI"];
+    const isAzure = providerName === ServiceProvider.Azure;
+    const isAnthropic = providerName === ServiceProvider.Anthropic;
+    const isBaidu = providerName == ServiceProvider.Baidu;
+    const isByteDance = providerName === ServiceProvider.ByteDance;
+    const isAlibaba = providerName === ServiceProvider.Alibaba;
+    const isMoonshot = providerName === ServiceProvider.Moonshot;
+    const isIflytek = providerName === ServiceProvider.Iflytek;
+    const isDeepSeek = providerName === ServiceProvider.DeepSeek;
+    const isXAI = providerName === ServiceProvider.XAI;
+    const isChatGLM = providerName === ServiceProvider.ChatGLM;
+    const isSiliconFlow = providerName === ServiceProvider.SiliconFlow;
+    const isAI302 = providerName === ServiceProvider["302.AI"];
     const isEnabledAccessControl = accessStore.enabledAccessControl();
     const apiKey = isGoogle
       ? accessStore.googleApiKey

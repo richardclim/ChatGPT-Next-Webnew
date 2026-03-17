@@ -139,6 +139,9 @@ const DEFAULT_ACCESS_STATE = {
   ai302Url: DEFAULT_AI302_URL,
   ai302ApiKey: "",
 
+  // tavily
+  tavilyApiKey: "",
+
   // server config
   needCode: true,
   hideUserApiKey: false,

@@ -9,14 +9,19 @@ import {
 } from "@/app/store";
 import { getClientConfig } from "@/app/config/client";
 import { ANTHROPIC_BASE_URL } from "@/app/constant";
-import { getMessageTextContent, isVisionModel } from "@/app/utils";
+import {
+  getMessageTextContent,
+  getMessageFiles,
+  isVisionModel,
+} from "@/app/utils";
 import { preProcessImageContent, stream } from "@/app/utils/chat";
 import { cloudflareAIGatewayUrl } from "@/app/utils/cloudflare";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
+import { getModelMaxOutputTokens } from "@/app/utils/model-utils";
 
 export type MultiBlockContent = {
-  type: "image" | "text";
+  type: "image" | "text" | "document";
   source?: {
     type: string;
     media_type: string;
@@ -147,12 +152,23 @@ export class ClaudeApi implements LLMApi {
         return {
           role: insideRole,
           content: content
-            .filter((v) => v.image_url || v.text)
-            .map(({ type, text, image_url }) => {
+            .filter((v) => v.image_url || v.text || v.file)
+            .map(({ type, text, image_url, file }) => {
               if (type === "text") {
                 return {
                   type,
                   text: text!,
+                };
+              }
+              if (type === "file" && file) {
+                const data = file.url.split(",")[1];
+                return {
+                  type: "document" as const,
+                  source: {
+                    type: "base64",
+                    media_type: file.mimeType,
+                    data,
+                  },
                 };
               }
               const { url = "" } = image_url || {};
@@ -183,21 +199,29 @@ export class ClaudeApi implements LLMApi {
       });
     }
 
+    const effectiveMaxTokens =
+      modelConfig.max_tokens > 0
+        ? modelConfig.max_tokens
+        : getModelMaxOutputTokens(modelConfig.model);
+
     const requestBody: AnthropicChatRequest = {
       messages: prompt,
       stream: shouldStream,
 
       model: modelConfig.model,
-      max_tokens:modelConfig.model === "claude-3-7-sonnet-20250219" ? 64000 : modelConfig.max_tokens,
+      max_tokens:
+        modelConfig.model === "claude-3-7-sonnet-20250219"
+          ? 64000
+          : effectiveMaxTokens,
       ...(modelConfig.model !== "claude-3-7-sonnet-20250219" && {
         temperature: modelConfig.temperature,
-        top_p: modelConfig.top_p
+        top_p: modelConfig.top_p,
       }),
       // top_k: modelConfig.top_k,
       // top_k: 5,
       thinking: {
         type: "enabled",
-        budget_tokens: modelConfig.max_tokens - 1, // Default value from example
+        budget_tokens: effectiveMaxTokens - 1, // Default value from example
       },
     };
 
@@ -235,7 +259,10 @@ export class ClaudeApi implements LLMApi {
           let chunkJson:
             | undefined
             | {
-                type: "content_block_delta" | "content_block_stop" | "content_block_start";
+                type:
+                  | "content_block_delta"
+                  | "content_block_stop"
+                  | "content_block_start";
                 content_block?: {
                   type: "tool_use" | "thinking" | "text" | "redacted_thinking";
                   id: string;
@@ -244,7 +271,11 @@ export class ClaudeApi implements LLMApi {
                   data?: string;
                 };
                 delta?: {
-                  type: "text_delta" | "input_json_delta" | "thinking_delta" | "signature_delta";
+                  type:
+                    | "text_delta"
+                    | "input_json_delta"
+                    | "thinking_delta"
+                    | "signature_delta";
                   text?: string;
                   partial_json?: string;
                   thinking?: string;
@@ -275,11 +306,17 @@ export class ClaudeApi implements LLMApi {
             runTools[index]["function"]["arguments"] +=
               chunkJson?.delta?.partial_json;
           }
-          if (chunkJson?.type === "content_block_start" && chunkJson?.content_block?.type === "thinking") {
+          if (
+            chunkJson?.type === "content_block_start" &&
+            chunkJson?.content_block?.type === "thinking"
+          ) {
             inThinkingBlock = true;
             return "🧠";
           }
-          if (chunkJson?.delta?.type === "thinking_delta" && chunkJson?.delta?.thinking) {
+          if (
+            chunkJson?.delta?.type === "thinking_delta" &&
+            chunkJson?.delta?.thinking
+          ) {
             return `${chunkJson.delta.thinking}`;
           }
           if (chunkJson?.type === "content_block_stop" && inThinkingBlock) {

@@ -76,7 +76,7 @@ const tw = {
       Masks: "所有角色範本",
       Clear: "清除聊天",
       Settings: "對話設定",
-      UploadImage: "上傳圖片",
+      UploadFile: "上傳",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

@@ -75,6 +75,238 @@
 
 .subtitle-button {
   button {
-    overflow:visible ;
+    overflow: visible;
+  }
+}
+
+.user-profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.user-profile-card {
+  .user-profile-domain-header {
+    margin-bottom: 15px;
+    border-bottom: var(--border-in-light);
+    padding-bottom: 10px;
+  }
+
+  .user-profile-domain-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--primary);
+    border: none;
+    background: transparent;
+    width: 100%;
+    outline: none;
+
+    &:focus {
+      opacity: 0.8;
+    }
+  }
+
+  .user-profile-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .user-profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+
+    .user-profile-field-label {
+      font-size: 12px;
+      font-weight: bold;
+      opacity: 0.6;
+      border: none;
+      background: transparent;
+      outline: none;
+      width: 100%;
+      padding: 0;
+      margin: 0;
+
+      &:focus {
+        color: var(--primary);
+        opacity: 1;
+      }
+    }
+  }
+}
+
+.user-profile-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.user-profile-card {
+  .user-profile-domain-header {
+    margin-bottom: 15px;
+    border-bottom: var(--border-in-light);
+    padding-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .user-profile-domain-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: var(--primary);
+    border: none;
+    background: transparent;
+    width: 100%;
+    outline: none;
+    text-align: left;
+
+    &:focus {
+      opacity: 0.8;
+      border-bottom: 1px dashed var(--primary);
+    }
+  }
+
+  .user-profile-actions {
+    display: flex;
+    gap: 5px;
+
+    .mini-icon-button {
+      padding: 4px;
+      height: 28px;
+      width: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.6;
+
+      &:hover {
+        opacity: 1;
+        background-color: var(--hover-color);
+      }
+    }
+  }
+
+  .user-profile-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .empty-domain-hint {
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.5;
+    padding: 10px;
+    border: 1px dashed var(--border-in-light);
+    border-radius: 8px;
+  }
+
+  .user-profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+
+    .user-profile-field-header {
+      display: flex;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 10px;
+
+      .user-profile-delete-field {
+        cursor: pointer;
+        opacity: 0.3;
+        transition: opacity 0.2s;
+        display: flex;
+        align-items: center;
+        padding: 5px;
+
+        &:hover {
+          opacity: 1;
+          color: var(--danger);
+        }
+      }
+    }
+
+    .user-profile-field-label {
+      font-size: 12px;
+      font-weight: bold;
+      opacity: 0.7;
+      border: none;
+      background: transparent;
+      outline: none;
+      width: auto;
+      min-width: 80px;
+      max-width: 200px;
+      padding: 0;
+      margin: 0;
+      text-align: left; /* Explicitly left align */
+      flex-grow: 1;
+
+      &:focus {
+        color: var(--primary);
+        opacity: 1;
+      }
+    }
+
+    .user-profile-field-type {
+      font-size: 11px;
+      padding: 4px 8px;
+      border: 1px solid var(--border-in-light);
+      border-radius: 6px;
+      background: var(--white);
+      color: var(--black);
+      cursor: pointer;
+      outline: none;
+      opacity: 0.7;
+      transition: all 0.2s;
+
+      &:hover {
+        opacity: 1;
+        border-color: var(--primary);
+      }
+
+      &:focus {
+        border-color: var(--primary);
+        opacity: 1;
+      }
+    }
+
+    .user-profile-field-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      .user-profile-field-input {
+        flex-grow: 1;
+      }
+
+      .user-profile-delete-field {
+        cursor: pointer;
+        opacity: 0.3;
+        transition: opacity 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 5px;
+
+        &:hover {
+          opacity: 1;
+          color: var(--danger);
+        }
+      }
+    }
+  }
+}
+
+.user-profile-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+
+  .full-width-button {
+    width: 100%;
+    justify-content: center;
   }
 }

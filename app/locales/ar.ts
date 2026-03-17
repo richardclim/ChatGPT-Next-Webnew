@@ -76,7 +76,7 @@ const ar: PartialLocaleType = {
       Masks: "جميع الأقنعة",
       Clear: "مسح الدردشة",
       Settings: "إعدادات الدردشة",
-      UploadImage: "تحميل صورة",
+      UploadFile: "تحميل",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

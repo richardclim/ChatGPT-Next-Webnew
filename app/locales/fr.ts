@@ -77,7 +77,7 @@ const fr: PartialLocaleType = {
       Masks: "Tous les masques",
       Clear: "Effacer la discussion",
       Settings: "Paramètres de la discussion",
-      UploadImage: "Télécharger une image",
+      UploadFile: "Télécharger",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

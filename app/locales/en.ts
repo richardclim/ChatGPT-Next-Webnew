@@ -87,7 +87,7 @@ const en: LocaleType = {
       Masks: "Masks",
       Clear: "Clear Context",
       Settings: "Settings",
-      UploadImage: "Upload Images",
+      UploadFile: "Upload",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -155,11 +155,29 @@ const en: LocaleType = {
   Memory: {
     Title: "Memory Prompt",
     EmptyContent: "Nothing yet.",
-    Send: "Send Memory",
-    Copy: "Copy Memory",
+    Send: "Send Chat Summary",
+    Copy: "Copy Summary",
     Reset: "Reset Session",
     ResetConfirm:
       "Resetting will clear the current conversation history and historical memory. Are you sure you want to reset?",
+  },
+  UserProfile: {
+    Title: "User Memory",
+    Enable: "Enable User Memory",
+    EnableSubTitle: "Automatically extract and inject user details",
+    Profile: "User Profile",
+    ProfileSubTitle: "Edit your extracted profile",
+    Model: "Memory Model",
+    ModelSubTitle: "Model used for extraction and injection",
+    InjectionDisplay: {
+      Title: "Display Memory Context",
+      SubTitle: "Show the injected memory context in the message bubble",
+    },
+    Edit: "Edit Profile",
+    VectorDebug: {
+      Title: "Vector Debug",
+      SubTitle: "View and explore vector store contents",
+    },
   },
   Home: {
     NewChat: "New Chat",
@@ -203,6 +221,11 @@ const en: LocaleType = {
     InjectSystemPrompts: {
       Title: "Inject System Prompts",
       SubTitle: "Inject a global system prompt for every request",
+    },
+    SystemPrompt: {
+      Title: "System Prompt",
+      SubTitle: "Custom instructions sent as the system message",
+      Edit: "Edit",
     },
     InputTemplate: {
       Title: "Input Template",
@@ -568,6 +591,16 @@ const en: LocaleType = {
     CompressModel: {
       Title: "Summary Model",
       SubTitle: "Model used to compress history and generate title",
+      SelectModel: "Select a model...",
+    },
+    PromptOptimizer: {
+      Title: "Prompt Enhancer",
+      Model: "Enhancer Model",
+      ModelSubTitle: "Model used to enhance prompts",
+      SelectModel: "Select a model...",
+      Instructions: "Enhancer Instructions",
+      InstructionsSubTitle: "Instructions for the prompt enhancer",
+      Edit: "Edit Instructions",
     },
     Temperature: {
       Title: "Temperature",
@@ -580,6 +613,7 @@ const en: LocaleType = {
     MaxTokens: {
       Title: "Max Tokens",
       SubTitle: "Maximum length of input tokens and generated tokens",
+      Placeholder: "Provider default",
     },
     PresencePenalty: {
       Title: "Presence Penalty",
@@ -679,6 +713,11 @@ const en: LocaleType = {
   },
   Mcp: {
     Name: "MCP",
+  },
+  Thinking: {
+    Thinking: "Thinking...",
+    ThoughtFor: (seconds: number) => `Thought for ${seconds}s`,
+    Total: (seconds: number) => `Total ${seconds}s`,
   },
   FineTuned: {
     Sysmessage: "You are an assistant that",

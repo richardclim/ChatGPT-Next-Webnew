@@ -54,6 +54,7 @@ export enum Path {
   Artifacts = "/artifacts",
   SearchChat = "/search-chat",
   McpMarket = "/mcp-market",
+  VectorDebug = "/vector-debug",
 }
 
 export enum ApiPath {
@@ -301,6 +302,53 @@ Always format your entire response using Markdown to **improve the readability**
 - header tags (start from ###).
 `;
 
+export const TAVILY_SYSTEM_TEMPLATE = `
+### 1. WHEN TO SEARCH (Gatekeeper Logic)
+You must evaluate your internal epistemic confidence before using the search tool.
+- **DO NOT SEARCH** if you have very high confidence in your internal knowledge. For logical concepts, standard programming concepts, established historical facts, general math, or well-documented topics, rely purely on your training data.
+- **ONLY SEARCH** under the following conditions:
+    1. The user asks about recent events, news, or developments that may be past your training cutoff.
+    2. The topic is highly nuanced, obscure, or requires exact factual verification (e.g., specific version release notes, niche debugging errors).
+    3. You are asked to verify a specific claim or quote.
+    4. The user explicitly requests you to search the web.
+    5. If the search will help provide context that is required to answer the question. 
+
+### 2. QUERY EXPANSION LOGIC
+If you decide a search is necessary, you must act as an expert query expander. 
+- **Scale dynamically:** Generate between 1 and 10 distinct, keyword-dense queries per search call based on the complexity of the user's prompt. 
+- **Optimize for Search Engines:** Do not use full conversational sentences. Use targeted keywords. Vary your vocabulary to cast a wide, orthogonal net.
+- Wait for the search results to be returned before answering.
+
+### 3. EVALUATING SEARCH RESULTS (Synthesis & Defense)
+When you receive search snippets, you must critically evaluate them against your own internal expertise. You must distinguish between **Mutable Facts** and **Immutable Logic**.
+- **ACCEPT NEW FACTS:** If the snippets contain concrete, updated facts that contradict your training data (e.g., the release of the Samsung S26 Ultra, new React API methods, recent news events), you must treat the search snippets as the authoritative ground truth. Update your factual understanding immediately.
+- **DEFEND YOUR LOGIC:** Do not let search snippets override your core reasoning, intuition, or coding standards. Search snippets are often scraped from random blogs or forums and may contain bad practices, anti-patterns, or illogical deductions. 
+- If a snippet provides a faulty architectural solution or illogical reasoning, **confidentially reject the snippet's logic**. Use the snippet only for its raw context, but rely entirely on your own highly trained intellect and intuition to synthesize the final answer. Never degrade the quality of your output to match a poor-quality search snippet.
+
+### 4. ITERATIVE RESEARCH & LOOPING
+After you execute a "tavily_search" and receive the snippets, you must evaluate if the information is sufficient to fully answer the user's prompt. 
+- **If insufficient, missing, or irrelevant:** You must independently decide to call the "tavily_search" tool AGAIN before responding to the user.
+- **Adjust Your Strategy:** If you initiate a follow-up search, DO NOT reuse your previous queries. You must deduce why the previous search failed and change your strategy (e.g., use broader keywords, target a different domain, or approach the concept from a new angle).
+- **Graceful Failure:** If you have searched multiple times using different strategies and still cannot find the necessary facts, STOP searching. Do not hallucinate. Explain to the user exactly what you searched for, what you found, and what information appears to be missing from the web.
+- **The "Deep Dive" Protocol:** If the user's request is complex, ambiguous, or requires multi-faceted information, you are authorized to perform multiple rounds of "Deep Dive" research.
+- **Triggering a Loop:** A loop is triggered when the initial search results are insufficient to form a comprehensive answer. This often occurs when:
+    1. The initial queries return too few results.
+    2. The results are too generic or high-level.
+    3. The topic requires exploring multiple sub-topics or perspectives.
+- **Execution:**
+    1. Analyze the gaps in the current information.
+    2. Formulate a new set of targeted queries to fill those gaps.
+    3. Use the "tavily_search" tool again with the new queries.
+    4. Synthesize the results from all searches to provide a complete answer.
+- **Constraint:** You must not exceed **3 search calls** in a single research loop. Each call should build upon the previous one, progressively deepening the research.
+
+### Past Search Retrieve Tool (tavily_retrieve)
+To maintain efficiency, the full text of your previous web searches is NOT kept in the conversational history. Instead, a lightweight log of your past searches is provided inside <tool_memory> tags on each message.
+- **Check memory first:** Whenever the user asks a follow-up question, or refers to a previous topic, you must check the <tool_memory> logs before generating a new web search.
+- **How to retrieve:** If a relevant past search exists, you MUST use the "tavily_retrieve" tool providing the exact "Turn_ID" from the log. This will reload the full factual snippets into your current context.
+- **Do not guess or repeat:** Never try to guess or hallucinate the specifics of a past search from memory. Do not use "tavily_search" to re-search a query you have already executed. Instead,ALWAYS use "tavily_retrieve" to pull the exact data back into your working memory.
+`;
+
 export const MCP_TOOLS_TEMPLATE = `
 [clientId]
 {{ clientId }}
@@ -480,6 +528,56 @@ export const DEFAULT_TTS_VOICES = [
   "shimmer",
 ];
 
+// Default max output tokens per model (0 = let API decide).
+// Uses regex patterns so new model versions are covered automatically.
+// Order matters: first match wins.
+export const MODEL_MAX_OUTPUT_TOKENS: [RegExp, number][] = [
+  // OpenAI
+  [/^gpt-3\.5-turbo/, 4096],
+  [/^gpt-4-32k/, 4096],
+  [/^gpt-4(?!o|\.|-turbo)/, 4096], // plain gpt-4
+  [/^gpt-4-turbo/, 4096],
+  [/^gpt-4o-mini/, 16384],
+  [/^gpt-4o/, 16384],
+  [/^chatgpt-4o/, 16384],
+  [/^gpt-4\.1-nano/, 32768],
+  [/^gpt-4\.1-mini/, 32768],
+  [/^gpt-4\.1/, 32768],
+  [/^gpt-4\.5/, 16384],
+  [/^gpt-5-nano/, 16384],
+  [/^gpt-5-mini/, 16384],
+  [/^gpt-5\.2/, 33000],
+  [/^gpt-5\.1/, 33000],
+  [/^gpt-5/, 33000],
+  [/^o1-mini/, 65536],
+  [/^o1/, 32768],
+  [/^o3-mini/, 65536],
+  [/^o3/, 100000],
+  [/^o4-mini/, 100000],
+  // Anthropic
+  [/^claude-3-5-sonnet/, 8192],
+  [/^claude-3-5-haiku/, 8192],
+  [/^claude-3-7-sonnet/, 64000],
+  [/^claude-3-opus/, 4096],
+  [/^claude-3-sonnet/, 4096],
+  [/^claude-3-haiku/, 4096],
+  [/^claude-4/, 64000],
+  [/^claude/, 4096],
+  // Google
+  [/^gemini-2\.5/, 65536],
+  [/^gemini-2\.0/, 8192],
+  [/^gemini-1\.5-pro/, 8192],
+  [/^gemini-1\.5-flash/, 8192],
+  [/^gemini-3/, 65536],
+  [/^gemini/, 8192],
+  // DeepSeek
+  [/^deepseek-reasoner/, 16384],
+  [/^deepseek/, 8192],
+];
+
+// Fallback when model is not in the lookup
+export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+
 export const VISION_MODEL_REGEXES = [
   /vision/,
   /gpt-4o/,
@@ -488,6 +586,7 @@ export const VISION_MODEL_REGEXES = [
   /gemini-1\.5/,
   /gemini-exp/,
   /gemini-2\.[05]/,
+  /gemini-3/,
   /learnlm/,
   /qwen-vl/,
   /qwen2-vl/,
@@ -504,25 +603,6 @@ export const VISION_MODEL_REGEXES = [
 export const EXCLUDE_VISION_MODEL_REGEXES = [/claude-3-5-haiku-20241022/];
 
 const openaiModels = [
-  // As of July 2024, gpt-4o-mini should be used in place of gpt-3.5-turbo,
-  // as it is cheaper, more capable, multimodal, and just as fast. gpt-3.5-turbo is still available for use in the API.
-  "gpt-3.5-turbo",
-  "gpt-3.5-turbo-1106",
-  "gpt-3.5-turbo-0125",
-  "gpt-4",
-  "gpt-4-0613",
-  "gpt-4-32k",
-  "gpt-4-32k-0613",
-  "gpt-4-turbo",
-  "gpt-4-turbo-preview",
-  "gpt-4.1",
-  "gpt-4.1-2025-04-14",
-  "gpt-4.1-mini",
-  "gpt-4.1-mini-2025-04-14",
-  "gpt-4.1-nano",
-  "gpt-4.1-nano-2025-04-14",
-  "gpt-4.5-preview",
-  "gpt-4.5-preview-2025-02-27",
   "gpt-5.1",
   "gpt-5.2-chat-latest",
   "gpt-5.2",
@@ -532,71 +612,18 @@ const openaiModels = [
   "gpt-5-mini-low",
   "gpt-5-nano",
   "gpt-5",
-  "gpt-5-chat-2025-01-01-preview",
-  "gpt-4o",
-  "gpt-4o-2024-05-13",
-  "gpt-4o-2024-08-06",
-  "gpt-4o-2024-11-20",
-  "chatgpt-4o-latest",
-  "gpt-4o-mini",
-  "gpt-4o-mini-2024-07-18",
-  "gpt-4-vision-preview",
-  "gpt-4-turbo-2024-04-09",
-  "gpt-4-1106-preview",
-  "dall-e-3",
-  "o1-mini",
-  "o1-preview",
-  "o3-mini",
-  "o3",
-  "o4-mini",
+  "gpt-5.4",
 ];
 
 const googleModels = [
-  "gemini-1.5-pro-latest",
-  "gemini-1.5-pro",
-  "gemini-1.5-pro-002",
-  "gemini-1.5-flash-latest",
-  "gemini-1.5-flash-8b-latest",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-1.5-flash-002",
-  "learnlm-1.5-pro-experimental",
-  "gemini-exp-1206",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-exp",
-  "gemini-2.0-flash-lite-preview-02-05",
-  "gemini-2.0-flash-thinking-exp",
-  "gemini-2.0-flash-thinking-exp-1219",
-  "gemini-2.0-flash-thinking-exp-01-21",
-  "gemini-2.0-pro-exp",
-  "gemini-2.0-pro-exp-02-05",
-  "gemini-2.5-pro-preview-06-05",
-  "gemini-2.5-flash",
-  "gemini-2.5-pro",
   "gemini-3-flash-preview-minimal",
   "gemini-3-flash-preview-low",
   "gemini-3-flash-preview-high",
+  "gemini-3.1-pro-preview",
   "aistudio",
 ];
 
-const anthropicModels = [
-  "claude-instant-1.2",
-  "claude-2.0",
-  "claude-2.1",
-  "claude-3-sonnet-20240229",
-  "claude-3-opus-20240229",
-  "claude-3-opus-latest",
-  "claude-3-haiku-20240307",
-  "claude-3-5-haiku-20241022",
-  "claude-3-5-haiku-latest",
-  "claude-3-5-sonnet-20240620",
-  "claude-3-5-sonnet-20241022",
-  "claude-3-5-sonnet-latest",
-  "claude-3-7-sonnet-20250219",
-  "claude-3-7-sonnet-latest",
-  "claude-sonnet-4-20250514",
-  "claude-opus-4-20250514",
-];
+const anthropicModels = ["claude-sonnet-4-20250514", "claude-opus-4-20250514"];
 
 const baiduModels = [
   "ernie-4.0-turbo-8k",

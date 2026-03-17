@@ -13,14 +13,24 @@ import {
   useChatStore,
   usePluginStore,
   ChatMessageTool,
+  ChatMessage,
 } from "@/app/store";
 import { stream, streamWithThink } from "@/app/utils/chat";
 import { getClientConfig } from "@/app/config/client";
 import { GEMINI_BASE_URL } from "@/app/constant";
+import {
+  tavilyToolDeclaration,
+  TAVILY_TOOL_NAME,
+  createTavilyHandler,
+  tavilyRetrieveDeclaration,
+  TAVILY_RETRIEVE_TOOL_NAME,
+  createTavilyRetrieveHandler,
+} from "@/app/client/tools/tavily";
 
 import {
   getMessageTextContent,
   getMessageImages,
+  getMessageFiles,
   isVisionModel,
   getTimeoutMSByModel,
 } from "@/app/utils";
@@ -94,10 +104,29 @@ export class GeminiProApi implements LLMApi {
 
     // try get base64image from local cache image_url
     const _messages: ChatOptions["messages"] = [];
-    for (const v of options.messages) {
-      const content = await preProcessImageContent(v.content);
+    for (const v of options.messages as ChatMessage[]) {
+      let content = (await preProcessImageContent(v.content)) as any;
+      if (v.role === "assistant" && v.tools && v.tools.length > 0) {
+        const toolLogs = v.tools.map(t => {
+          const name = t.function?.name || t.type;
+          const args = typeof t.function?.arguments === 'string' ? t.function?.arguments : JSON.stringify(t.function?.arguments || {});
+          return `Executed: ${name}\nArguments: ${args}`;
+        }).join('\n\n');
+        content = `${content}\n\n<tool_memory>\nTurn ID: ${v.id}\n${toolLogs}\n</tool_memory>`;
+      }
       _messages.push({ role: v.role, content });
     }
+
+    // Extract the first system message as a dedicated system_instruction.
+    // Remaining system messages (e.g. memory summary) stay in contents as
+    // user-role messages, matching the previous behaviour.
+    let systemInstructionText = "";
+    const firstSystemIdx = _messages.findIndex((v) => v.role === "system");
+    if (firstSystemIdx !== -1) {
+      systemInstructionText = getMessageTextContent(_messages[firstSystemIdx]);
+      _messages.splice(firstSystemIdx, 1);
+    }
+
     const messages = _messages.map((v) => {
       let parts: any[] = [{ text: getMessageTextContent(v) }];
       if (isVisionModel(options.config.model)) {
@@ -112,6 +141,21 @@ export class GeminiProApi implements LLMApi {
                 inline_data: {
                   mime_type: imageType,
                   data: imageData,
+                },
+              };
+            }),
+          );
+        }
+        const files = getMessageFiles(v);
+        if (files.length > 0) {
+          multimodal = true;
+          parts = parts.concat(
+            files.map((file) => {
+              const data = file.url.split(",")[1];
+              return {
+                inline_data: {
+                  mime_type: file.mimeType,
+                  data,
                 },
               };
             }),
@@ -157,29 +201,41 @@ export class GeminiProApi implements LLMApi {
       options.config.model.includes("gemini-3-flash-preview");
 
     const requestPayload = {
+      ...(systemInstructionText && {
+        system_instruction: {
+          parts: [{ text: systemInstructionText }],
+        },
+      }),
       contents: messages,
       generationConfig: {
         // stopSequences: [
         //   "Title"
         // ],
         temperature: modelConfig.temperature,
-        maxOutputTokens: modelConfig.max_tokens,
+        ...(modelConfig.max_tokens > 0 && {
+          maxOutputTokens: modelConfig.max_tokens,
+        }),
         topP: modelConfig.top_p,
         responseMimeType: options.config.responseMimeType,
+        responseSchema: options.config.responseJsonSchema,
         // "topK": modelConfig.top_k,
         ...(isThinking && {
-          thinkingConfig: {
+          thinking_config: {
             ...(options.config.model.includes("gemini-3-flash-preview")
               ? {
-                  thinkingLevel:
+                  thinking_level:
                     options.config.model.split("-").pop() === "preview"
                       ? "low"
                       : options.config.model.split("-").pop(),
                 }
+              : options.config.model.includes("gemini-3.1-pro-preview")
+              ? {
+                  thinking_level: "high",
+                }
               : {
-                  thinkingBudget: 32768,
+                  thinking_budget: 32768,
                 }),
-            includeThoughts: true,
+            include_thoughts: true,
           },
         }),
       },
@@ -231,11 +287,16 @@ export class GeminiProApi implements LLMApi {
       );
 
       if (shouldStream) {
-        const [tools, funcs] = usePluginStore
+        let [tools, funcs] = usePluginStore
           .getState()
           .getAsTools(
             useChatStore.getState().currentSession().mask?.plugin || [],
-          );
+          ) as [any[], Record<string, Function>];
+
+        if (modelConfig.enableTavily) {
+          tools.push(tavilyToolDeclaration);
+          funcs[TAVILY_TOOL_NAME] = createTavilyHandler(modelConfig);
+        }
 
         const processToolMessage = (
           requestPayload: RequestPayload,

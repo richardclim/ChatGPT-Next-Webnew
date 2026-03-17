@@ -78,7 +78,7 @@ const da: PartialLocaleType = {
       Masks: "Personaer",
       Clear: "Ryd kontekst",
       Settings: "Indstillinger",
-      UploadImage: "Upload billeder",
+      UploadFile: "Upload",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

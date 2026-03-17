@@ -78,7 +78,7 @@ const es: PartialLocaleType = {
       Masks: "Todas las máscaras",
       Clear: "Limpiar chat",
       Settings: "Configuración de conversación",
-      UploadImage: "Subir imagen",
+      UploadFile: "Subir",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

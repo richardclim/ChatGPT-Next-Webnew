@@ -1,9 +1,12 @@
 import {
   getMessageTextContent,
   isDalle3,
+  parseThinkingContent,
   safeLocalStorage,
   trimTopic,
 } from "../utils";
+import { useMemoryStore } from "./memory";
+import type { ExtractionResult } from "./memory";
 
 import { shallow } from "zustand/shallow";
 import {
@@ -33,6 +36,7 @@ import {
   ServiceProvider,
   StoreKey,
   SUMMARIZE_MODEL,
+  TAVILY_SYSTEM_TEMPLATE,
 } from "../constant";
 import Locale, { getLang } from "../locales";
 import { prettyObject } from "../utils/format";
@@ -60,6 +64,11 @@ export type ChatMessageTool = {
   errorMsg?: string;
 };
 
+export interface TimingInfo {
+  reasoningDurationMs?: number;
+  totalDurationMs?: number;
+}
+
 export type ChatMessage = RequestMessage & {
   date: string;
   streaming?: boolean;
@@ -71,6 +80,9 @@ export type ChatMessage = RequestMessage & {
   isMcpResponse?: boolean;
   isPasted?: boolean;
   gpt5PrevId?: string;
+  memoryContext?: string;
+  thinkingContent?: string;
+  timingInfo?: TimingInfo;
 };
 
 export function createMessage(override: Partial<ChatMessage>): ChatMessage {
@@ -103,6 +115,17 @@ export interface ChatSession {
   mask: Mask;
   pinned: boolean;
   pinnedAt?: number | null;
+
+  lastArchivedContextId?: string;
+  lastExtractionTime?: number;
+  enableMemory?: boolean;
+
+  lastEpisodicSummary?: string;
+  lastEpisodicEntryId?: string;
+
+  // Soft-delete tombstone: timestamp when session was deleted.
+  // Undefined/absent means the session is alive.
+  deletedAt?: number;
 }
 
 export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
@@ -128,7 +151,37 @@ function createEmptySession(): ChatSession {
     mask: createEmptyMask(),
     pinned: false,
     pinnedAt: null,
+
+    enableMemory: true,
+    lastArchivedContextId: undefined,
+    lastExtractionTime: undefined,
+    lastEpisodicSummary: undefined,
+    lastEpisodicEntryId: undefined,
   };
+}
+
+/**
+ * Pure function that applies extraction result metadata to session fields.
+ * Used by triggerExtractionForSession to update the session atomically.
+ */
+export function applyExtractionResult(
+  session: Pick<
+    ChatSession,
+    | "lastArchivedContextId"
+    | "lastExtractionTime"
+    | "lastEpisodicSummary"
+    | "lastEpisodicEntryId"
+  >,
+  result: ExtractionResult,
+): void {
+  session.lastArchivedContextId = result.lastMessageId;
+  session.lastExtractionTime = Date.now();
+  if (result.episodicSummary !== undefined) {
+    session.lastEpisodicSummary = result.episodicSummary;
+  }
+  if (result.entryId !== undefined) {
+    session.lastEpisodicEntryId = result.entryId;
+  }
 }
 
 function getSummarizeModel(
@@ -161,6 +214,16 @@ function getSummarizeModel(
   }
 
   return [currentModel, providerName];
+}
+
+/** Strip `> ` blockquoted thinking lines from assistant message content */
+function stripThinkingFromMessages(msgs: ChatMessage[]): ChatMessage[] {
+  return msgs.map((msg) => {
+    if (msg.role === "assistant" && typeof msg.content === "string") {
+      return { ...msg, content: parseThinkingContent(msg.content).output };
+    }
+    return msg;
+  });
 }
 
 function countMessages(msgs: ChatMessage[]) {
@@ -235,9 +298,22 @@ async function getMcpSystemPrompt(): Promise<string> {
   return MCP_SYSTEM_TEMPLATE.replace("{{ MCP_TOOLS }}", toolsStr);
 }
 
+// Tombstone retention: purge soft-deleted sessions older than 30 days
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function isSessionAlive(s: ChatSession): boolean {
+  return !s.deletedAt;
+}
+
+function purgeTombstones(tombstones: ChatSession[]): ChatSession[] {
+  const cutoff = Date.now() - TOMBSTONE_TTL_MS;
+  return tombstones.filter((s) => (s.deletedAt ?? 0) > cutoff);
+}
+
 function isPlaceholderSession(s: ChatSession): boolean {
   return (
     !!s &&
+    !s.deletedAt &&
     (s.messages?.length ?? 0) === 0 &&
     s.topic === DEFAULT_TOPIC &&
     !s.pinned &&
@@ -253,6 +329,9 @@ function stripOnlyPlaceholder(sessions: ChatSession[]): ChatSession[] {
 
 const DEFAULT_CHAT_STATE = {
   sessions: [createEmptySession()],
+  // Tombstones: soft-deleted sessions kept for cross-tab merge conflict resolution.
+  // Stored separately so UI code using index-based session access is unaffected.
+  _tombstones: [] as ChatSession[],
   currentSessionIndex: 0,
   lastInput: "",
   isMenuOpen: false,
@@ -290,6 +369,7 @@ function sortSessions(
 }
 
 const CHAT_TAB_ID_KEY = "chat_tab_id";
+const CHAT_TAB_SESSION_KEY = "chat_current_session_id"; // Per-tab session persistence
 const CHAT_TAB_ID = (() => {
   try {
     const v =
@@ -302,6 +382,24 @@ const CHAT_TAB_ID = (() => {
     return Math.random().toString(36).slice(2);
   }
 })();
+
+// Helper to persist the current session ID for this tab
+function setTabCurrentSessionId(sessionId: string) {
+  try {
+    sessionStorage.setItem(CHAT_TAB_SESSION_KEY, sessionId);
+  } catch (e) {
+    console.warn("[Chat] Failed to save session ID to sessionStorage", e);
+  }
+}
+
+// Helper to retrieve the persisted session ID for this tab
+function getTabCurrentSessionId(): string | null {
+  try {
+    return sessionStorage.getItem(CHAT_TAB_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
 
 function toTs(dateStr?: string) {
   if (!dateStr) return 0;
@@ -341,25 +439,48 @@ function mergeMessages(
   return merged;
 }
 
-// Reconcile sessions by id; merge fields & messages
+// Reconcile sessions + tombstones across local and remote.
+// Returns { sessions, tombstones } with conflicts resolved.
 function mergeSessions(
-  local: ChatSession[],
-  remote: ChatSession[],
-): ChatSession[] {
-  const ls = new Map(local.map((s) => [s.id, s]));
-  const result: ChatSession[] = [];
+  localSessions: ChatSession[],
+  localTombstones: ChatSession[],
+  remoteSessions: ChatSession[],
+  remoteTombstones: ChatSession[],
+): { sessions: ChatSession[]; tombstones: ChatSession[] } {
+  // Build tombstone maps (id → tombstone record)
+  const localTombMap = new Map(localTombstones.map((t) => [t.id, t]));
+  const remoteTombMap = new Map(remoteTombstones.map((t) => [t.id, t]));
 
-  for (const R of remote) {
-    const L = ls.get(R.id);
+  // Build local live session map
+  const localMap = new Map(localSessions.map((s) => [s.id, s]));
 
-    if (!L) {
-      result.push(R);
+  const resultSessions: ChatSession[] = [];
+  const resultTombstones: ChatSession[] = [];
+  const seen = new Set<string>();
+
+  // Pass 1: iterate remote live sessions
+  for (const R of remoteSessions) {
+    seen.add(R.id);
+    const L = localMap.get(R.id);
+    const localTomb = localTombMap.get(R.id);
+
+    if (localTomb) {
+      // Local deleted this session — tombstone wins
+      resultTombstones.push(localTomb);
       continue;
     }
+
+    if (!L) {
+      // Remote-only session, not tombstoned locally — keep it
+      resultSessions.push(R);
+      continue;
+    }
+
+    // Both sides have it live — merge
     const newer = (L.lastUpdate ?? 0) >= (R.lastUpdate ?? 0) ? L : R;
     const messages = mergeMessages(L.messages, R.messages);
 
-    result.push({
+    resultSessions.push({
       ...newer,
       messages,
       pinned: (L.pinnedAt ?? 0) >= (R.pinnedAt ?? 0) ? L.pinned : R.pinned,
@@ -380,7 +501,35 @@ function mergeSessions(
     });
   }
 
-  return result;
+  // Pass 2: add local-only live sessions (not in remote, not tombstoned remotely)
+  for (const [id, L] of localMap) {
+    if (seen.has(id)) continue; // already handled
+    const remoteTomb = remoteTombMap.get(id);
+    if (remoteTomb) {
+      // Remote deleted this session — tombstone wins
+      resultTombstones.push(remoteTomb);
+    } else {
+      resultSessions.push(L);
+    }
+  }
+
+  // Pass 3: merge tombstones from both sides (union, keep latest deletedAt)
+  const tombMap = new Map<string, ChatSession>();
+  for (const t of [...localTombstones, ...remoteTombstones]) {
+    const existing = tombMap.get(t.id);
+    if (!existing || (t.deletedAt ?? 0) > (existing.deletedAt ?? 0)) {
+      tombMap.set(t.id, t);
+    }
+  }
+  // Only keep tombstones that aren't already in resultTombstones
+  const resultTombIds = new Set(resultTombstones.map((t) => t.id));
+  for (const [id, t] of tombMap) {
+    if (!resultTombIds.has(id)) {
+      resultTombstones.push(t);
+    }
+  }
+
+  return { sessions: resultSessions, tombstones: resultTombstones };
 }
 
 // Merge whole chat store (excluding ephemeral UI fields)
@@ -390,11 +539,17 @@ function reconcileChatStore(
 ): typeof DEFAULT_CHAT_STATE {
   if (!remoteState) return localState;
 
-  // Merge sessions
-  const mergedSessions = mergeSessions(
-    localState.sessions,
-    remoteState.sessions,
-  );
+  // Merge sessions + tombstones
+  const { sessions: mergedSessions, tombstones: mergedTombstones } =
+    mergeSessions(
+      localState.sessions,
+      localState._tombstones ?? [],
+      remoteState.sessions ?? [],
+      remoteState._tombstones ?? [],
+    );
+
+  // Purge tombstones older than retention period
+  const cleanedTombstones = purgeTombstones(mergedTombstones);
 
   // Keep current session by id if possible
   const currentId = localState.sessions[localState.currentSessionIndex]?.id;
@@ -406,6 +561,7 @@ function reconcileChatStore(
   return {
     ...localState,
     sessions: sortedSessions,
+    _tombstones: cleanedTombstones,
     currentSessionIndex: newIndex,
     lastInput,
     isMenuOpen: localState.isMenuOpen,
@@ -426,6 +582,8 @@ function partializeChatState(
   return {
     ...s,
     sessions: prunedSessions,
+    // Tombstones are already lightweight (no messages/memoryPrompt)
+    _tombstones: s._tombstones ?? [],
     // DO NOT persist cross-tab fields (we set them on boot)
     _rev: undefined as any,
     _inFlight: undefined as any,
@@ -448,8 +606,43 @@ export const useChatStore = createPersistStore(
         ...methods,
       };
     }
+    const EXTRACTION_DEBOUNCE_MS = 30 * 1000; // 30 seconds debounce
 
     const methods = {
+      async triggerExtractionForSession(session: ChatSession) {
+        if (!session.enableMemory || session.messages.length === 0) return;
+
+        // Debounce: skip if extraction ran recently for this session
+        const now = Date.now();
+        if (
+          session.lastExtractionTime &&
+          now - session.lastExtractionTime < EXTRACTION_DEBOUNCE_MS
+        ) {
+          console.log(
+            "[Chat] Skipping extraction - debounce period not elapsed",
+          );
+          return;
+        }
+
+        const memoryStore = useMemoryStore.getState();
+        const result = await memoryStore.processExtraction(
+          session.messages,
+          session.id,
+          session.lastArchivedContextId,
+          session.lastEpisodicSummary,
+          session.lastEpisodicEntryId,
+        );
+
+        if (result) {
+          get().updateTargetSession(session, (s) => {
+            applyExtractionResult(s, result);
+          });
+          console.log(
+            "[Chat] Extraction complete, updated lastArchivedContextId:",
+            result.lastMessageId,
+          );
+        }
+      },
       async rehydrateFromDiskAndMerge() {
         const name = StoreKey.Chat;
         const env = await readPersistEnvelope(name);
@@ -621,19 +814,47 @@ export const useChatStore = createPersistStore(
           currentSessionIndex: 0,
           sessions: [newSession, ...state.sessions],
         }));
+
+        // Persist the forked session ID for this tab
+        setTabCurrentSessionId(newSession.id);
       },
 
       clearSessions() {
+        const now = Date.now();
+        const newTombstones = get().sessions.map((s) => ({
+          ...s,
+          deletedAt: now,
+          pinned: false,
+          messages: [] as ChatMessage[],
+          memoryPrompt: "",
+        }));
+        const tombstones = [...(get() as any)._tombstones, ...newTombstones];
+        const newSession = createEmptySession();
         set(() => ({
-          sessions: [createEmptySession()],
+          sessions: [newSession],
+          _tombstones: tombstones,
           currentSessionIndex: 0,
         }));
+        // Persist the new session ID for this tab
+        setTabCurrentSessionId(newSession.id);
       },
 
       selectSession(index: number) {
+        // Trigger extraction on the previous session before switching
+        const previousSession = get().currentSession();
+        if (previousSession && previousSession.messages.length > 0) {
+          get().triggerExtractionForSession(previousSession);
+        }
+
         set({
           currentSessionIndex: index,
         });
+
+        // Persist the selected session ID to sessionStorage for this tab
+        const sessions = get().sessions;
+        if (sessions[index]) {
+          setTabCurrentSessionId(sessions[index].id);
+        }
       },
 
       moveSession(from: number, to: number) {
@@ -662,6 +883,12 @@ export const useChatStore = createPersistStore(
       },
 
       newSession(mask?: Mask) {
+        // Trigger extraction for current session before creating new one
+        const currentSession = get().currentSession();
+        if (currentSession && currentSession.messages.length > 0) {
+          get().triggerExtractionForSession(currentSession);
+        }
+
         const session = createEmptySession();
 
         if (mask) {
@@ -682,6 +909,9 @@ export const useChatStore = createPersistStore(
           currentSessionIndex: 0,
           sessions: [session].concat(state.sessions),
         }));
+
+        // Persist the new session ID for this tab
+        setTabCurrentSessionId(session.id);
       },
 
       nextSession(delta: number) {
@@ -697,8 +927,18 @@ export const useChatStore = createPersistStore(
 
         if (!deletedSession) return;
 
+        // Remove from sessions, add to tombstones
         const sessions = get().sessions.slice();
         sessions.splice(index, 1);
+
+        const tombstone: ChatSession = {
+          ...deletedSession,
+          deletedAt: Date.now(),
+          pinned: false,
+          messages: [], // strip heavy data from tombstone
+          memoryPrompt: "",
+        };
+        const tombstones = [...(get() as any)._tombstones, tombstone];
 
         const currentIndex = get().currentSessionIndex;
         let nextIndex = Math.min(
@@ -715,12 +955,19 @@ export const useChatStore = createPersistStore(
         const restoreState = {
           currentSessionIndex: get().currentSessionIndex,
           sessions: get().sessions.slice(),
+          _tombstones: (get() as any)._tombstones.slice(),
         };
 
         set(() => ({
           currentSessionIndex: nextIndex,
           sessions,
+          _tombstones: tombstones,
         }));
+
+        // Persist the new current session ID for this tab
+        if (sessions[nextIndex]) {
+          setTabCurrentSessionId(sessions[nextIndex].id);
+        }
 
         showToast(
           Locale.Home.DeleteToast,
@@ -772,6 +1019,28 @@ export const useChatStore = createPersistStore(
         get().checkMcpJson(message);
 
         get().summarizeSession(false, targetSession);
+
+        // Check if we should trigger extraction (every 6 new messages)
+        const session = get().sessions.find((s) => s.id === targetSession.id);
+        if (session && session.enableMemory) {
+          const archiveIndex = session.lastArchivedContextId
+            ? session.messages.findIndex(
+                (m) => m.id === session.lastArchivedContextId,
+              )
+            : -1;
+          const newMessageCount =
+            archiveIndex >= 0
+              ? session.messages.length - archiveIndex - 1
+              : session.messages.length;
+
+          // 3 user + 3 assistant = 6 messages
+          if (newMessageCount >= 6) {
+            console.log(
+              "[Chat] Triggering extraction - 6+ new messages detected",
+            );
+            get().triggerExtractionForSession(session);
+          }
+        }
       },
 
       async onUserInput(
@@ -779,6 +1048,7 @@ export const useChatStore = createPersistStore(
         attachImages?: string[],
         isMcpResponse?: boolean,
         isPasted?: boolean, // Added isPasted parameter
+        attachFiles?: { url: string; name: string; mimeType: string }[],
       ) {
         const session = get().currentSession();
         // increment in-flight count when starting a new assistant stream
@@ -791,12 +1061,20 @@ export const useChatStore = createPersistStore(
             ? content
             : fillTemplateWith(content, modelConfig);
 
-          if (!isMcpResponse && attachImages && attachImages.length > 0) {
+          const hasAttachments =
+            (!isMcpResponse && attachImages && attachImages.length > 0) ||
+            (attachFiles && attachFiles.length > 0);
+
+          if (hasAttachments) {
             mContent = [
               ...(content ? [{ type: "text" as const, text: content }] : []),
-              ...attachImages.map((url) => ({
+              ...(attachImages ?? []).map((url) => ({
                 type: "image_url" as const,
                 image_url: { url },
+              })),
+              ...(attachFiles ?? []).map((f) => ({
+                type: "file" as const,
+                file: f,
               })),
             ];
           }
@@ -807,6 +1085,52 @@ export const useChatStore = createPersistStore(
             isMcpResponse,
             isPasted,
           });
+
+          // Memory Logic: Retrieve and attach memory context if enabled (and not pasted/MCP)
+          const memoryStore = useMemoryStore.getState();
+          if (
+            !isMcpResponse &&
+            !isPasted &&
+            memoryStore.enabled &&
+            session.enableMemory &&
+            content
+          ) {
+            try {
+              // Collect memoryContext from previous messages to avoid duplicate retrieval
+              const previousMemoryContexts = session.messages
+                .filter((m) => m.role === "user" && m.memoryContext)
+                .map((m) => m.memoryContext as string);
+
+              // Last few messages for query expander reference resolution (pronouns like "it", "that")
+              const recentMessages = session.messages.slice(-4);
+
+              const [relevant, episodic] = await Promise.all([
+                memoryStore.findRelevant(content, previousMemoryContexts),
+                memoryStore.retrieveEpisodicMemory(
+                  content,
+                  5,
+                  recentMessages,
+                  previousMemoryContexts,
+                ),
+              ]);
+              const episodicStr =
+                episodic && episodic.length > 0 ? episodic.join("\n\n") : "";
+
+              const memoryContext = [
+                relevant ? `User Profile:\n${relevant}` : "",
+                episodicStr ? `Recalled Memory:\n${episodicStr}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n");
+
+              if (memoryContext) {
+                userMessage.memoryContext = memoryContext;
+                console.log("[Chat] Attached memory context to user message");
+              }
+            } catch (e) {
+              console.error("[Chat] Failed to retrieve memory", e);
+            }
+          }
 
           // If message is pasted, add it to messages and return early.
           if (userMessage.isPasted) {
@@ -829,7 +1153,15 @@ export const useChatStore = createPersistStore(
 
           // get recent messages
           const recentMessages = await get().getMessagesWithMemory();
-          const sendMessages = recentMessages.concat(userMessage);
+          // Inject memoryContext into the current user message for the API call
+          const outgoingUserMessage =
+            userMessage.memoryContext && typeof userMessage.content === "string"
+              ? {
+                  ...userMessage,
+                  content: `Context:\n${userMessage.memoryContext}\n\nQuestion:\n${userMessage.content}`,
+                }
+              : userMessage;
+          const sendMessages = recentMessages.concat(outgoingUserMessage);
           const messageIndex = session.messages.length + 1;
           const isNewChat = session.messages.length === 0;
 
@@ -849,6 +1181,25 @@ export const useChatStore = createPersistStore(
 
           // External Model Logic
           if (modelConfig.model === "aistudio") {
+            // Since aistudio doesn't use message arrays, we prepend context directly to content
+            let aiStudioContent: string | MultimodalContent[] = mContent;
+            if (userMessage.memoryContext && typeof mContent === "string") {
+              aiStudioContent = `Context:\n${userMessage.memoryContext}\n\nQuestion:\n${mContent}`;
+              console.log(
+                "[Chat] AIStudio: Injected memory context into content",
+              );
+            } else if (userMessage.memoryContext && Array.isArray(mContent)) {
+              // For multimodal content, prepend context as text
+              const contextText = {
+                type: "text" as const,
+                text: `Context:\n${userMessage.memoryContext}\n\nQuestion:\n`,
+              };
+              aiStudioContent = [contextText, ...mContent];
+              console.log(
+                "[Chat] AIStudio: Injected memory context into multimodal content",
+              );
+            }
+
             // make request to local api
             try {
               const queueRes = await fetch("/api/external-chat", {
@@ -857,7 +1208,7 @@ export const useChatStore = createPersistStore(
                 body: JSON.stringify({
                   action: "queue",
                   id: userMessage.id,
-                  content: mContent,
+                  content: aiStudioContent,
                   model: modelConfig.model,
                   isNewChat,
                 }),
@@ -947,12 +1298,28 @@ export const useChatStore = createPersistStore(
                 session.messages = session.messages.concat();
               });
             },
-            async onFinish(message, res, gpt5PrevId?) {
+            async onFinish(
+              message,
+              res,
+              thinkingText?,
+              timingInfo?,
+              gpt5PrevId?,
+            ) {
               botMessage.streaming = false;
               if (message) {
-                botMessage.content = message;
                 botMessage.date = new Date().toLocaleString();
 
+                if (thinkingText) {
+                  botMessage.thinkingContent = thinkingText;
+                  // Strip blockquoted thinking lines from the main content
+                  // to avoid duplication (thinking is already in thinkingContent)
+                  botMessage.content = parseThinkingContent(message).output;
+                } else {
+                  botMessage.content = message;
+                }
+                if (timingInfo) {
+                  botMessage.timingInfo = timingInfo;
+                }
                 if (gpt5PrevId) {
                   botMessage.gpt5PrevId = gpt5PrevId;
                 }
@@ -1060,40 +1427,57 @@ export const useChatStore = createPersistStore(
         // in-context prompts
         const contextPrompts = session.mask.context.slice();
 
-        // system prompts, to get close to OpenAI Web ChatGPT
-        const shouldInjectSystemPrompts =
-          modelConfig.enableInjectSystemPrompts &&
-          (session.mask.modelConfig.model.startsWith("gpt-") ||
-            session.mask.modelConfig.model.startsWith("chatgpt-"));
+        // system prompts
+        const isOpenAI =
+          session.mask.modelConfig.model.startsWith("gpt-") ||
+          session.mask.modelConfig.model.startsWith("chatgpt-");
 
         const mcpEnabled = await isMcpEnabled();
         const mcpSystemPrompt = mcpEnabled ? await getMcpSystemPrompt() : "";
 
-        var systemPrompts: ChatMessage[] = [];
+        // Build system prompt content:
+        // - OpenAI models: always include DEFAULT_SYSTEM_TEMPLATE
+        // - All models: append user's systemPrompt when enableInjectSystemPrompts is on
+        // - All models: append MCP prompt when MCP is enabled
+        const systemParts: string[] = [];
 
-        if (shouldInjectSystemPrompts) {
-          systemPrompts = [
-            createMessage({
-              role: "system",
-              content:
-                fillTemplateWith("", {
-                  ...modelConfig,
-                  template: DEFAULT_SYSTEM_TEMPLATE,
-                }) + mcpSystemPrompt,
+        if (isOpenAI) {
+          systemParts.push(
+            fillTemplateWith("", {
+              ...modelConfig,
+              template: DEFAULT_SYSTEM_TEMPLATE,
             }),
-          ];
-        } else if (mcpEnabled) {
+          );
+        }
+
+        if (
+          modelConfig.enableInjectSystemPrompts &&
+          modelConfig.systemPrompt?.trim()
+        ) {
+          systemParts.push(modelConfig.systemPrompt.trim());
+        }
+
+        if (mcpSystemPrompt) {
+          systemParts.push(mcpSystemPrompt);
+        }
+
+        if (modelConfig.enableTavily) {
+          systemParts.push(TAVILY_SYSTEM_TEMPLATE);
+        }
+
+        var systemPrompts: ChatMessage[] = [];
+        if (systemParts.length > 0) {
           systemPrompts = [
             createMessage({
               role: "system",
-              content: mcpSystemPrompt,
+              content: systemParts.join("\n\n"),
             }),
           ];
         }
 
-        if (shouldInjectSystemPrompts || mcpEnabled) {
+        if (systemPrompts.length > 0) {
           console.log(
-            "[Global System Prompt] ",
+            "[System Prompt] ",
             systemPrompts.at(0)?.content ?? "empty",
           );
         }
@@ -1147,7 +1531,21 @@ export const useChatStore = createPersistStore(
           ...reversedRecentMessages.reverse(),
         ];
 
-        return recentMessages;
+        // Process messages to inject memoryContext if available
+        // and strip thinking content from assistant messages
+        const finalMessages = stripThinkingFromMessages(recentMessages).map(
+          (msg) => {
+            if (msg.role === "user" && msg.memoryContext) {
+              return {
+                ...msg,
+                content: `Context:\n${msg.memoryContext}\n\nQuestion:\n${msg.content}`,
+              };
+            }
+            return msg;
+          },
+        );
+
+        return finalMessages;
       },
 
       updateMessage(
@@ -1219,23 +1617,25 @@ export const useChatStore = createPersistStore(
             0,
             messages.length - modelConfig.historyMessageCount,
           );
-          const topicMessages = messages
-            .slice(
+          const topicMessages = stripThinkingFromMessages(
+            messages.slice(
               startIndex < messages.length ? startIndex : messages.length - 1,
               messages.length,
-            )
-            .concat(
-              createMessage({
-                role: "user",
-                content: Locale.Store.Prompt.Topic,
-              }),
-            );
+            ),
+          ).concat(
+            createMessage({
+              role: "user",
+              content: Locale.Store.Prompt.Topic,
+            }),
+          );
           api.llm.chat({
             messages: topicMessages,
             config: {
               model,
               stream: false,
               providerName,
+              useStandardCompletion: true,
+              suppressReasoningOutput: true,
             },
             onFinish(message, responseRes) {
               if (responseRes?.status === 200) {
@@ -1289,7 +1689,7 @@ export const useChatStore = createPersistStore(
            **/
           const { max_tokens, ...modelcfg } = modelConfig;
           api.llm.chat({
-            messages: toBeSummarizedMsgs.concat(
+            messages: stripThinkingFromMessages(toBeSummarizedMsgs).concat(
               createMessage({
                 role: "system",
                 content: Locale.Store.Prompt.Summarize,
@@ -1301,6 +1701,8 @@ export const useChatStore = createPersistStore(
               stream: true,
               model,
               providerName,
+              useStandardCompletion: true,
+              suppressReasoningOutput: true,
             },
             onUpdate(message) {
               session.memoryPrompt = message;
@@ -1384,7 +1786,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.4,
+    version: 3.7,
     partialize: (state) => partializeChatState(state) as any,
 
     merge: (persisted: any, current: any) => {
@@ -1410,6 +1812,28 @@ export const useChatStore = createPersistStore(
           hydratedState.initCrossTabSync?.();
         } catch (e) {
           console.error(e);
+        }
+
+        // Restore per-tab session selection from sessionStorage
+        const savedSessionId = getTabCurrentSessionId();
+        if (savedSessionId && hydratedState.sessions) {
+          const index = hydratedState.sessions.findIndex(
+            (s: ChatSession) => s.id === savedSessionId,
+          );
+          if (index >= 0 && index !== hydratedState.currentSessionIndex) {
+            // onRehydrateStorage is called after hydration completes,
+            // so we can safely update state directly
+            useChatStore.setState({ currentSessionIndex: index });
+            console.log(
+              "[Chat] Restored per-tab session selection:",
+              savedSessionId,
+            );
+          }
+        } else if (hydratedState.sessions?.length > 0) {
+          // No saved session - save the current one for future refreshes
+          setTabCurrentSessionId(
+            hydratedState.sessions[hydratedState.currentSessionIndex || 0]?.id,
+          );
         }
       };
     },
@@ -1496,6 +1920,27 @@ export const useChatStore = createPersistStore(
         );
         newState.sessions = sortedSessions;
         newState.currentSessionIndex = newIndex;
+      }
+
+      if (version < 3.5) {
+        newState.sessions.forEach((s) => {
+          s.enableMemory = s.enableMemory ?? true;
+          s.lastArchivedContextId = s.lastArchivedContextId ?? undefined;
+          s.lastExtractionTime = s.lastExtractionTime ?? undefined;
+        });
+      }
+
+      if (version < 3.6) {
+        newState.sessions.forEach((s) => {
+          s.deletedAt = s.deletedAt ?? undefined;
+        });
+      }
+
+      if (version < 3.7) {
+        newState.sessions.forEach((s) => {
+          s.mask.modelConfig.systemPrompt =
+            s.mask.modelConfig.systemPrompt ?? "";
+        });
       }
 
       return newState as any;

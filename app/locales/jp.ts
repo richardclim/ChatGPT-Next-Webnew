@@ -76,7 +76,7 @@ const jp: PartialLocaleType = {
       Masks: "すべてのマスク",
       Clear: "チャットをクリア",
       Settings: "チャット設定",
-      UploadImage: "画像をアップロード",
+      UploadFile: "アップロード",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

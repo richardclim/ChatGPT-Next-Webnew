@@ -587,3 +587,77 @@ export function FullScreen(props: any) {
     </div>
   );
 }
+
+export function ChipInput(props: {
+  value: string[];
+  onChange: (value: string[]) => void;
+  inputRef?: React.RefObject<HTMLInputElement>;
+}) {
+  const [inputValue, setInputValue] = useState("");
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && inputValue.trim()) {
+      e.preventDefault();
+      if (!props.value.includes(inputValue.trim())) {
+        props.onChange([...props.value, inputValue.trim()]);
+      }
+      setInputValue("");
+    }
+  };
+
+  const removeTag = (tag: string) => {
+    props.onChange(props.value.filter((v) => v !== tag));
+  };
+
+  return (
+    <div className={styles["chip-input-container"]}>
+      {props.value.map((tag, i) => (
+        <div key={i} className={styles["chip-input-tag"]}>
+          {tag}
+          <div
+            className={styles["chip-input-tag-remove"]}
+            onClick={() => removeTag(tag)}
+          >
+            <CloseIcon width={10} height={10} />
+          </div>
+        </div>
+      ))}
+      <input
+        ref={props.inputRef}
+        className={styles["chip-input"]}
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Type and enter..."
+      />
+    </div>
+  );
+}
+
+export function Toggle(props: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  title?: string;
+}) {
+  return (
+    <div
+      className={styles["toggle"]}
+      onClick={() => props.onChange(!props.checked)}
+      title={props.title}
+    >
+      <input
+        type="checkbox"
+        className={styles["toggle-input"]}
+        checked={props.checked}
+        readOnly
+      />
+      <div
+        className={clsx(styles["toggle-track"], {
+          [styles["checked"]]: props.checked,
+        })}
+      >
+        <div className={styles["toggle-thumb"]}></div>
+      </div>
+    </div>
+  );
+}

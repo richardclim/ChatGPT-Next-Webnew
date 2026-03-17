@@ -68,7 +68,7 @@ export const DEFAULT_CONFIG = {
     providerName: "OpenAI" as ServiceProvider,
     temperature: 0.5,
     top_p: 1,
-    max_tokens: 4000,
+    max_tokens: 0,
     presence_penalty: 0,
     frequency_penalty: 0,
     sendMemory: true,
@@ -77,10 +77,18 @@ export const DEFAULT_CONFIG = {
     compressModel: "",
     compressProviderName: "",
     enableInjectSystemPrompts: true,
+    systemPrompt: "",
     template: config?.template ?? DEFAULT_INPUT_TEMPLATE,
     size: "1024x1024" as ModelSize,
     quality: "standard" as DalleQuality,
     style: "vivid" as DalleStyle,
+    promptOptimizerModel: "",
+    promptOptimizerProviderName: "",
+    promptOptimizerInstructions: "",
+    enableTavily: false,
+    tavilySearchType: "basic" as "basic" | "advanced" | "extract",
+    tavilyMaxResults: 5,
+    tavilyMaxChunksPerSource: 5,
   },
 
   ttsConfig: {
@@ -144,8 +152,9 @@ export const ModalConfigValidator = {
   model(x: string) {
     return x as ModelType;
   },
-  max_tokens(x: number) {
-    return limitNumber(x, 0, 512000, 1024);
+  max_tokens(x: number, modelMax?: number) {
+    const max = modelMax || 512000;
+    return limitNumber(x, 0, max, 0);
   },
   presence_penalty(x: number) {
     return limitNumber(x, -2, 2, 0);
@@ -195,7 +204,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.1,
+    version: 4.3,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -253,6 +262,16 @@ export const useAppConfig = createPersistStore(
           DEFAULT_CONFIG.modelConfig.compressModel;
         state.modelConfig.compressProviderName =
           DEFAULT_CONFIG.modelConfig.compressProviderName;
+      }
+
+      if (version < 4.2) {
+        // Reset max_tokens to 0 (provider default) — the old hardcoded 4000
+        // was arbitrary and could cause issues with models that have different limits
+        state.modelConfig.max_tokens = 0;
+      }
+
+      if (version < 4.3) {
+        state.modelConfig.systemPrompt = "";
       }
 
       return state as any;

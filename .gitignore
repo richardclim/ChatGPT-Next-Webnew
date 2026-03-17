@@ -50,3 +50,10 @@ masks.json
 # mcp config
 app/mcp/mcp_config.json
 .aider*
+.roo*
+.kiro*
+.specify*
+.trae*
+external-chat-queue.json
+scripts/.env.test
+/nextchat-data

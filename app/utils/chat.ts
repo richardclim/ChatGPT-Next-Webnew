@@ -4,6 +4,7 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "@/app/constant";
 import { MultimodalContent, RequestMessage } from "@/app/client/api";
+import { TimingInfo } from "@/app/store/chat";
 import Locale from "@/app/locales";
 import {
   EventStreamContentType,
@@ -87,6 +88,7 @@ export async function preProcessImageContentBase(
         console.error("Error processing image URL:", error);
       }
     } else {
+      // Pass through text and file parts unchanged
       result.push({ ...part });
     }
   }
@@ -100,6 +102,14 @@ export async function preProcessImageContent(
     type: "image_url",
     image_url: { url },
   })) as Promise<MultimodalContent[] | string>;
+}
+
+/** Strip file parts from multimodal content for providers that don't support them */
+export function stripFileContent(
+  content: string | MultimodalContent[],
+): string | MultimodalContent[] {
+  if (typeof content === "string") return content;
+  return content.filter((part) => part.type !== "file");
 }
 
 export async function preProcessImageContentForAlibabaDashScope(
@@ -139,6 +149,15 @@ export function base64Image2Blob(base64Data: string, contentType: string) {
   }
   const byteArray = new Uint8Array(byteNumbers);
   return new Blob([byteArray], { type: contentType });
+}
+
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 export function uploadImage(file: Blob): Promise<string> {
@@ -412,6 +431,7 @@ export function streamWithThink(
 ) {
   let responseText = "";
   let remainText = "";
+  let thinkingText = "";
   let finished = false;
   let running = false;
   let runTools: any[] = [];
@@ -419,6 +439,11 @@ export function streamWithThink(
   let isInThinkingMode = false;
   let lastIsThinking = false;
   let lastIsThinkingTagged = false; //between <think> and </think> tags
+
+  // Timing tracking
+  let streamStartTime: number | undefined;
+  let reasoningStartTime: number | undefined;
+  let reasoningEndTime: number | undefined;
 
   // animate response to make it looks smooth
   function animateResponseText() {
@@ -517,7 +542,22 @@ export function streamWithThink(
       }
       console.debug("[ChatAPI] end");
       finished = true;
-      options.onFinish(responseText + remainText, responseRes);
+      const timingInfo: TimingInfo = {
+        reasoningDurationMs:
+          reasoningStartTime !== undefined && reasoningEndTime !== undefined
+            ? reasoningEndTime - reasoningStartTime
+            : undefined,
+        totalDurationMs:
+          streamStartTime !== undefined
+            ? Date.now() - streamStartTime
+            : undefined,
+      };
+      options.onFinish(
+        responseText + remainText,
+        responseRes,
+        thinkingText,
+        timingInfo,
+      );
     }
   };
 
@@ -599,6 +639,11 @@ export function streamWithThink(
             return;
           }
 
+          // Track stream start time on first token
+          if (streamStartTime === undefined) {
+            streamStartTime = Date.now();
+          }
+
           // deal with <think> and </think> tags start
           if (!chunk.isThinking) {
             if (chunk.content.startsWith("<think>")) {
@@ -619,6 +664,14 @@ export function streamWithThink(
           const isThinkingChanged = lastIsThinking !== chunk.isThinking;
           lastIsThinking = chunk.isThinking;
 
+          // Track reasoning timing
+          if (chunk.isThinking && reasoningStartTime === undefined) {
+            reasoningStartTime = Date.now();
+          }
+          if (isThinkingChanged && !chunk.isThinking) {
+            reasoningEndTime = Date.now();
+          }
+
           if (chunk.isThinking) {
             // If in thinking mode
             if (!isInThinkingMode || isThinkingChanged) {
@@ -628,9 +681,15 @@ export function streamWithThink(
                 remainText += "\n";
               }
               remainText += "> ";
+              // Add newline separator for thinkingText if starting a new block
+              if (thinkingText.length > 0) {
+                thinkingText += "\n";
+              }
             }
             // For all thinking content, replace internal newlines with a newline and a quote.
             remainText += chunk.content.replace(/\n/g, "\n> ");
+            // Accumulate raw thinking content without `> ` prefix
+            thinkingText += chunk.content;
           } else {
             // If in normal mode
             if (isInThinkingMode || isThinkingChanged) {

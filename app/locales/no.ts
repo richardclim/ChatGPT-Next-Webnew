@@ -78,7 +78,7 @@ const no: PartialLocaleType = {
       Masks: "Alle masker",
       Clear: "Rydd samtale",
       Settings: "Samtaleinnstillinger",
-      UploadImage: "Last opp bilde",
+      UploadFile: "Last opp",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },

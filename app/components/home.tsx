@@ -82,6 +82,13 @@ const McpMarketPage = dynamic(
   },
 );
 
+const VectorDebugPage = dynamic(
+  async () => (await import("./vector-debug")).VectorDebug,
+  {
+    loading: () => <Loading noLogo />,
+  },
+);
+
 export function useSwitchTheme() {
   const config = useAppConfig();
 
@@ -202,6 +209,7 @@ function Screen() {
             <Route path={Path.Chat} element={<Chat />} />
             <Route path={Path.Settings} element={<Settings />} />
             <Route path={Path.McpMarket} element={<McpMarketPage />} />
+            <Route path={Path.VectorDebug} element={<VectorDebugPage />} />
           </Routes>
         </WindowContent>
       </>

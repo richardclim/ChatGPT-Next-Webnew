@@ -86,7 +86,7 @@ const cn = {
       Masks: "所有面具",
       Clear: "清除聊天",
       Settings: "对话设置",
-      UploadImage: "上传图片",
+      UploadFile: "上传",
       PasteQuestion: "Questions",
       PasteResponse: "Answers",
     },
@@ -159,6 +159,24 @@ const cn = {
     Reset: "[unused]",
     ResetConfirm: "确认清空历史摘要？",
   },
+  UserProfile: {
+    Title: "用户记忆",
+    Enable: "启用用户记忆",
+    EnableSubTitle: "自动提取并注入用户详情",
+    Profile: "用户资料",
+    ProfileSubTitle: "编辑已提取的用户资料",
+    Model: "记忆模型",
+    ModelSubTitle: "用于提取和智能注入记忆的模型",
+    InjectionDisplay: {
+      Title: "显示记忆上下文",
+      SubTitle: "在消息气泡中显示注入的记忆上下文",
+    },
+    Edit: "编辑资料",
+    VectorDebug: {
+      Title: "向量调试",
+      SubTitle: "查看与浏览向量库内容",
+    },
+  },
   Home: {
     NewChat: "新的聊天",
     DeleteChat: "确认删除选中的对话？",
@@ -201,6 +219,11 @@ const cn = {
     InjectSystemPrompts: {
       Title: "注入系统级提示信息",
       SubTitle: "强制给每次请求的消息列表开头添加一个模拟 ChatGPT 的系统提示",
+    },
+    SystemPrompt: {
+      Title: "系统提示词",
+      SubTitle: "作为系统消息发送的自定义指令",
+      Edit: "编辑",
     },
     InputTemplate: {
       Title: "用户输入预处理",
@@ -563,6 +586,16 @@ const cn = {
     CompressModel: {
       Title: "对话摘要模型",
       SubTitle: "用于压缩历史记录、生成对话标题的模型",
+      SelectModel: "选择模型...",
+    },
+    PromptOptimizer: {
+      Title: "提示词优化器",
+      Model: "优化模型",
+      ModelSubTitle: "用于优化提示词的模型",
+      SelectModel: "选择模型...",
+      Instructions: "优化指令",
+      InstructionsSubTitle: "提示词优化器的系统指令",
+      Edit: "编辑指令",
     },
     Temperature: {
       Title: "随机性 (temperature)",
@@ -575,6 +608,7 @@ const cn = {
     MaxTokens: {
       Title: "单次回复限制 (max_tokens)",
       SubTitle: "单次交互所用的最大 Token 数",
+      Placeholder: "使用模型默认值",
     },
     PresencePenalty: {
       Title: "话题新鲜度 (presence_penalty)",
@@ -670,6 +704,11 @@ const cn = {
   },
   Mcp: {
     Name: "MCP",
+  },
+  Thinking: {
+    Thinking: "思考中...",
+    ThoughtFor: (seconds: number) => `思考了 ${seconds}秒`,
+    Total: (seconds: number) => `共 ${seconds}秒`,
   },
   FineTuned: {
     Sysmessage: "你是一个助手",
