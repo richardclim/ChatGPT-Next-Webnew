@@ -126,6 +126,9 @@ export interface ChatSession {
   // Soft-delete tombstone: timestamp when session was deleted.
   // Undefined/absent means the session is alive.
   deletedAt?: number;
+
+  // Per-session draft input text, persisted across refreshes and cloud sync.
+  draftInput?: string;
 }
 
 export const DEFAULT_TOPIC = Locale.Store.DefaultTopic;
@@ -157,6 +160,7 @@ function createEmptySession(): ChatSession {
     lastExtractionTime: undefined,
     lastEpisodicSummary: undefined,
     lastEpisodicEntryId: undefined,
+    draftInput: "",
   };
 }
 
@@ -498,6 +502,8 @@ function mergeSessions(
       clearContextIndex:
         Math.max(L.clearContextIndex ?? 0, R.clearContextIndex ?? 0) ||
         undefined,
+      // Prefer local draft (this tab is actively typing); fall back to remote
+      draftInput: L.draftInput || R.draftInput,
     });
   }
 
@@ -1749,6 +1755,13 @@ export const useChatStore = createPersistStore(
           lastInput,
         });
       },
+      updateSessionDraft(sessionId: string, draft: string) {
+        const sessions = get().sessions;
+        const index = sessions.findIndex((s) => s.id === sessionId);
+        if (index < 0) return;
+        sessions[index].draftInput = draft;
+        set(() => ({ sessions }));
+      },
 
       /** check if the message contains MCP JSON and execute the MCP action */
       checkMcpJson(message: ChatMessage) {
@@ -1786,7 +1799,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.7,
+    version: 3.8,
     partialize: (state) => partializeChatState(state) as any,
 
     merge: (persisted: any, current: any) => {
@@ -1940,6 +1953,12 @@ export const useChatStore = createPersistStore(
         newState.sessions.forEach((s) => {
           s.mask.modelConfig.systemPrompt =
             s.mask.modelConfig.systemPrompt ?? "";
+        });
+      }
+
+      if (version < 3.8) {
+        newState.sessions.forEach((s) => {
+          s.draftInput = s.draftInput ?? "";
         });
       }
 

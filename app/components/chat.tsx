@@ -115,7 +115,6 @@ import {
   Path,
   REQUEST_TIMEOUT_MS,
   ServiceProvider,
-  UNFINISHED_INPUT,
 } from "../constant";
 import { Avatar } from "./emoji";
 import { ContextPrompts, MaskAvatar, MaskConfig } from "./mask";
@@ -896,7 +895,9 @@ export function ChatActions(props: {
             chatStore.updateTargetSession(session, (session) => {
               session.mask.modelConfig.enableTavily = enableTavily;
               if (session.mask.syncGlobalConfig) {
-                config.update((c) => (c.modelConfig.enableTavily = enableTavily));
+                config.update(
+                  (c) => (c.modelConfig.enableTavily = enableTavily),
+                );
               }
             });
             showToast(enableTavily ? "Search Enabled" : "Search Disabled");
@@ -1093,7 +1094,7 @@ function _Chat() {
   const [showExport, setShowExport] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [userInput, setUserInput] = useState("");
+  const [userInput, setUserInput] = useState(() => session.draftInput ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [originalPrompt, setOriginalPrompt] = useState("");
@@ -1119,6 +1120,23 @@ function _Chat() {
   }, []);
 
   const isTyping = userInput !== "";
+
+  // Debounced write of draft input to the store for persistence
+  const debouncedSaveDraft = useDebouncedCallback((draft: string) => {
+    chatStore.updateSessionDraft(session.id, draft);
+  }, 1000);
+  useEffect(() => {
+    debouncedSaveDraft(userInput);
+  }, [userInput, debouncedSaveDraft]);
+
+  // Sync local state when switching sessions
+  const prevSessionId = useRef(session.id);
+  useEffect(() => {
+    if (prevSessionId.current !== session.id) {
+      prevSessionId.current = session.id;
+      setUserInput(session.draftInput ?? "");
+    }
+  }, [session.id, session.draftInput]);
 
   // if user is typing, should auto scroll to bottom
   // if user is not typing, should auto scroll to bottom only if already at bottom
@@ -1578,23 +1596,6 @@ function _Chat() {
 
   // edit / insert message modal
   const [isEditingMessage, setIsEditingMessage] = useState(false);
-
-  // remember unfinished input
-  useEffect(() => {
-    // try to load from local storage
-    const key = UNFINISHED_INPUT(session.id);
-    const mayBeUnfinishedInput = localStorage.getItem(key);
-    if (mayBeUnfinishedInput && userInput.length === 0) {
-      setUserInput(mayBeUnfinishedInput);
-      localStorage.removeItem(key);
-    }
-
-    const dom = inputRef.current;
-    return () => {
-      localStorage.setItem(key, dom?.value ?? "");
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handlePasteQuestion = () => {
     if (userInput.trim() === "") return;
@@ -2160,23 +2161,28 @@ function _Chat() {
                               <div className={styles["chat-message-tools"]}>
                                 <ToolSources tools={message.tools || []} />
                                 {message?.tools?.map((tool) => {
-                                  if (tool.function?.name === "tavily_search" || tool.function?.name === "tavily_retrieve") return null;
+                                  if (
+                                    tool.function?.name === "tavily_search" ||
+                                    tool.function?.name === "tavily_retrieve"
+                                  )
+                                    return null;
                                   return (
-                                  <div
-                                    key={tool.id}
-                                    title={tool?.errorMsg}
-                                    className={styles["chat-message-tool"]}
-                                  >
-                                    {tool.isError === false ? (
-                                      <ConfirmIcon />
-                                    ) : tool.isError === true ? (
-                                      <CloseIcon />
-                                    ) : (
-                                      <LoadingButtonIcon />
-                                    )}
-                                    <span>{tool?.function?.name}</span>
-                                  </div>
-                                )})}
+                                    <div
+                                      key={tool.id}
+                                      title={tool?.errorMsg}
+                                      className={styles["chat-message-tool"]}
+                                    >
+                                      {tool.isError === false ? (
+                                        <ConfirmIcon />
+                                      ) : tool.isError === true ? (
+                                        <CloseIcon />
+                                      ) : (
+                                        <LoadingButtonIcon />
+                                      )}
+                                      <span>{tool?.function?.name}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                             <div className={styles["chat-message-item"]}>
@@ -2589,5 +2595,5 @@ function _Chat() {
 export function Chat() {
   const chatStore = useChatStore();
   const session = chatStore.currentSession();
-  return <_Chat key={session.id}></_Chat>;
+  return <_Chat></_Chat>;
 }

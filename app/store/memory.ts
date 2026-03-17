@@ -57,6 +57,9 @@ export const memorySchema = z
 
 const rerankSchema = z.array(z.number().int());
 
+const memoryJsonSchemaCache = zodToJsonSchema(memorySchema as any) as any;
+const rerankJsonSchemaCache = zodToJsonSchema(rerankSchema as any) as any;
+
 export interface ExtractionResult {
   lastMessageId: string;
   episodicSummary?: string;
@@ -260,8 +263,6 @@ export const useMemoryStore = createPersistStore(
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
 
-        const jsonSchema = zodToJsonSchema(memorySchema as any) as any;
-
         const geminiJsonMode = config.providerName === "Google";
         const openAIJsonMode =
           config.providerName === "OpenAI" || config.providerName === "Azure";
@@ -304,13 +305,13 @@ export const useMemoryStore = createPersistStore(
                 responseMimeType: geminiJsonMode
                   ? "application/json"
                   : undefined,
-                responseJsonSchema: geminiJsonMode ? jsonSchema : undefined,
+                responseJsonSchema: geminiJsonMode ? memoryJsonSchemaCache : undefined,
                 response_format: openAIJsonMode
                   ? {
                       type: "json_schema",
                       json_schema: {
                         name: "memory_extraction",
-                        schema: jsonSchema,
+                        schema: memoryJsonSchemaCache,
                         strict: true,
                       },
                     }
@@ -518,7 +519,6 @@ export const useMemoryStore = createPersistStore(
         const geminiJsonMode = config.providerName === "Google";
         const openAIJsonMode =
           config.providerName === "OpenAI" || config.providerName === "Azure";
-        const rerankJsonSchema = zodToJsonSchema(rerankSchema as any) as any;
 
         const expansionPrompt = `
             Current Date: ${today}
@@ -655,14 +655,14 @@ export const useMemoryStore = createPersistStore(
                   ? "application/json"
                   : undefined,
                 responseJsonSchema: geminiJsonMode
-                  ? rerankJsonSchema
+                  ? rerankJsonSchemaCache
                   : undefined,
                 response_format: openAIJsonMode
                   ? {
                       type: "json_schema",
                       json_schema: {
                         name: "memory_extraction",
-                        schema: rerankJsonSchema,
+                        schema: rerankJsonSchemaCache,
                         strict: true,
                       },
                     }

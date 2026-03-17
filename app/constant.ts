@@ -109,9 +109,6 @@ export const NARROW_SIDEBAR_WIDTH = 100;
 
 export const ACCESS_CODE_PREFIX = "nk-";
 
-export const LAST_INPUT_KEY = "last-input";
-export const UNFINISHED_INPUT = (id: string) => "unfinished-input-" + id;
-
 export const STORAGE_KEY = "chatgpt-next-web";
 
 export const REQUEST_TIMEOUT_MS = 300000;
@@ -613,6 +610,8 @@ const openaiModels = [
   "gpt-5-nano",
   "gpt-5",
   "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.4-nano",
 ];
 
 const googleModels = [
@@ -620,6 +619,7 @@ const googleModels = [
   "gemini-3-flash-preview-low",
   "gemini-3-flash-preview-high",
   "gemini-3.1-pro-preview",
+  "gemini-3.1-flash-lite-latest",
   "aistudio",
 ];
 
