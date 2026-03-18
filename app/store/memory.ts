@@ -11,6 +11,7 @@ import {
   extractFirstJsonArray,
 } from "../utils/json-parser";
 import { parseThinkingContent } from "../utils";
+import { nanoid } from "nanoid";
 
 const profileUpdatesSchema = z
   .object({
@@ -138,7 +139,7 @@ export function buildUpsertChunk(
   lastEpisodicEntryId?: string,
 ): Record<string, unknown> {
   return {
-    id: sessionId,
+    id: nanoid(),
     sessionIds: [sessionId],
     content: enrichedContent,
     keywords,
@@ -476,7 +477,7 @@ export const useMemoryStore = createPersistStore(
                         console.log(
                           "[Memory] No episodic summary and no profile updates.",
                         );
-                        resolve(undefined);
+                        resolve({ lastMessageId });
                       }
                     }
                   } catch (parseError) {

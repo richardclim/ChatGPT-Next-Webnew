@@ -223,7 +223,7 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
           );
 
           expect(chunk).toHaveProperty("replaceEntryId", entryId);
-          expect(chunk.id).toBe(sessionId);
+          expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
           expect(chunk.keywords).toBe(keywords);
           expect(chunk.createdAt).toBe(createdAt);
@@ -252,7 +252,7 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
           );
 
           expect(chunk).not.toHaveProperty("replaceEntryId");
-          expect(chunk.id).toBe(sessionId);
+          expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
         },
       ),
@@ -278,7 +278,7 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
           );
 
           expect(chunk).not.toHaveProperty("replaceEntryId");
-          expect(chunk.id).toBe(sessionId);
+          expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
         },
       ),
