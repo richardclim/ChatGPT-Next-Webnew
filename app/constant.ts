@@ -634,7 +634,7 @@ const openaiModels = [
 const googleModels = [
   "gemini-3-flash-preview",
   "gemini-3.1-pro-preview",
-  "gemini-3.1-flash-lite-latest",
+  "gemini-3.1-flash-lite-preview",
   "aistudio",
 ];
 

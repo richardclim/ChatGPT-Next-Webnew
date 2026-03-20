@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { getServerSideConfig } from "@/app/config/server";
 import path from "path";
 import fs from "fs";
+import { nanoid } from "nanoid";
 
 const DB_PATH = path.join(process.cwd(), "nextchat-data", "vectors");
 const TABLE_NAME = "episodic_memory";
@@ -82,7 +83,6 @@ export async function upsertMemory(
 ): Promise<string | undefined> {
   const db = await getDb();
   const tableNames = await db.tableNames();
-  const { nanoid } = await import("nanoid");
   let entryId: string | undefined;
 
   // Helper to ensure table exists

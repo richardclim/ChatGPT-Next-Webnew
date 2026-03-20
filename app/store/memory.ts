@@ -200,7 +200,7 @@ export const useMemoryStore = createPersistStore(
     memoryModelConfig: {
       model: "gpt-4o-mini",
       providerName: "OpenAI",
-      temperature: 0.5,
+      temperature: 1,
       reasoningEffort: "",
     } as MemoryConfig,
   },

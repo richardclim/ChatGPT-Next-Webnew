@@ -25,15 +25,18 @@ const mockTable = {
   search: jest.fn(),
   vectorSearch: jest.fn(),
   fullTextSearch: jest.fn(),
+  distanceType: jest.fn(),
   rerank: jest.fn(),
   limit: jest.fn(),
   toArray: jest.fn(),
   createIndex: jest.fn(),
+  listIndices: jest.fn(),
   delete: jest.fn(), // Added delete support
 };
 (mockTable.search as any).mockReturnValue(mockTable);
 (mockTable.vectorSearch as any).mockReturnValue(mockTable);
 (mockTable.fullTextSearch as any).mockReturnValue(mockTable);
+(mockTable.distanceType as any).mockReturnValue(mockTable);
 (mockTable.rerank as any).mockReturnValue(mockTable);
 (mockTable.limit as any).mockReturnValue(mockTable);
 
@@ -45,32 +48,38 @@ const mockConnection = {
 
 const mockConnect = jest.fn();
 
-// Use unstable_mockModule for ESM mocking with variables
-jest.unstable_mockModule("@google/generative-ai", () => ({
-  GoogleGenerativeAI: mockGoogleGenerativeAI,
+// Use jest.mock for easier CommonJS mocking unless forced
+jest.mock("@google/generative-ai", () => ({
+  GoogleGenerativeAI: jest.fn<any>().mockImplementation(() => ({
+    getGenerativeModel: mockGetGenerativeModel,
+  })),
 }));
 
-jest.unstable_mockModule("@lancedb/lancedb", () => ({
+jest.mock("@lancedb/lancedb", () => ({
   connect: mockConnect,
   Index: {
     fts: jest.fn(),
   },
   rerankers: {
     RRFReranker: {
-      create: jest.fn(),
+      create: jest.fn<any>(),
     },
   },
 }));
 
+jest.mock("nanoid", () => ({
+  nanoid: () => "mock_nanoid",
+}));
+
 // Dynamic import of the system under test
 // Note: We need to wait for mocks to be registered
-let upsertMemory: any, searchMemory: any, MemoryChunk: any;
+let upsertMemory: any, searchMemory: any;
 
 describe("Vector Store", () => {
   beforeAll(async () => {
-    const module = await import("../app/api/vector/store");
-    upsertMemory = module.upsertMemory;
-    searchMemory = module.searchMemory;
+    const storeModule = await import("../app/api/vector/store");
+    upsertMemory = storeModule.upsertMemory;
+    searchMemory = storeModule.searchMemory;
   });
 
   beforeEach(() => {
@@ -78,14 +87,15 @@ describe("Vector Store", () => {
     process.env.GOOGLE_API_KEY = "test-key";
 
     // Default behaviors
-    mockEmbedContent.mockResolvedValue({
+    mockEmbedContent.mockImplementation(() => Promise.resolve({
       embedding: { values: [0.1, 0.2, 0.3] },
-    });
+    }));
 
     mockConnect.mockResolvedValue(mockConnection);
     mockConnection.createTable.mockResolvedValue(mockTable);
     mockConnection.openTable.mockResolvedValue(mockTable);
     (mockTable.toArray as any).mockResolvedValue([]);
+    (mockTable.listIndices as any).mockResolvedValue([]);
   });
 
   describe("upsertMemory", () => {
@@ -97,7 +107,7 @@ describe("Vector Store", () => {
       ]);
 
       const chunks = [
-        { id: "1", content: "new content", sessionId: "s1", createdAt: 123 },
+        { id: "1", content: "new content", sessionIds: ["s1"], createdAt: 123 },
       ];
       await upsertMemory(chunks);
 
@@ -116,7 +126,7 @@ describe("Vector Store", () => {
       ]);
 
       const chunks = [
-        { id: "1", content: "new content", sessionId: "s1", createdAt: 123 },
+        { id: "1", content: "new content", sessionIds: ["s1"], createdAt: 123 },
       ];
       await upsertMemory(chunks);
 
@@ -140,7 +150,7 @@ describe("Vector Store", () => {
         {
           id: "1",
           content: "His name is Max",
-          sessionId: "s1",
+          sessionIds: ["s1"],
           createdAt: 123,
         },
       ];
@@ -171,7 +181,7 @@ describe("Vector Store", () => {
         {
           id: "1",
           content: "Ate pizza on Tue",
-          sessionId: "s1",
+          sessionIds: ["s1"],
           createdAt: 123,
         },
       ];

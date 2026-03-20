@@ -28,8 +28,12 @@ interface LanceDBRecord {
  * and new array formats. Falls back to the record id for pre-fix rows.
  */
 function normaliseSessionIds(record: LanceDBRecord): string[] {
-  if (Array.isArray(record.sessionIds) && record.sessionIds.length > 0) {
-    return [...new Set(record.sessionIds)];
+  if (
+    record.sessionIds &&
+    typeof record.sessionIds.length === "number" &&
+    record.sessionIds.length > 0
+  ) {
+    return [...new Set(Array.from(record.sessionIds))];
   }
   const legacy = record.sessionId || record.id;
   return legacy ? [legacy] : [];
@@ -109,6 +113,7 @@ export async function GET(request: Request) {
       "keywords",
     ];
 
+    let schemaDimensions = 0;
     if (totalRecords > 0) {
       try {
         const sampleRow = await table.query().limit(1).toArray();
@@ -117,6 +122,12 @@ export async function GET(request: Request) {
           selectColumns = selectColumns.filter((col) =>
             actualDbColumns.includes(col),
           );
+
+          // Extract array length for displaying dimensions dynamically
+          const sampleVector = sampleRow[0].vector;
+          if (sampleVector && typeof sampleVector.length === "number") {
+            schemaDimensions = sampleVector.length;
+          }
         }
       } catch (schemaError) {
         console.warn(
@@ -148,8 +159,8 @@ export async function GET(request: Request) {
 
     // Apply sessionId filter if provided
     if (sessionIdFilter) {
-      allRecords = allRecords.filter(
-        (record) => record.sessionId === sessionIdFilter,
+      allRecords = allRecords.filter((record) =>
+        normaliseSessionIds(record).includes(sessionIdFilter),
       );
     }
 
@@ -174,7 +185,7 @@ export async function GET(request: Request) {
           createdAtFormatted: record.createdAt
             ? new Date(record.createdAt).toLocaleString()
             : null,
-          vectorDimensions: vector?.length || 0,
+          vectorDimensions: schemaDimensions,
           // Truncate content preview for list view
           contentPreview:
             record.content?.length > 200

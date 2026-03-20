@@ -555,7 +555,7 @@ export function VectorDebug() {
                       const ids =
                         record.sessionIds && record.sessionIds.length > 0
                           ? record.sessionIds
-                          : [record.id];
+                          : [];
                       const entries: SessionEntry[] = ids.map((sid) => {
                         const topic = sessionTopicMap.get(sid);
                         const idx = sessions.findIndex((s) => s.id === sid);
