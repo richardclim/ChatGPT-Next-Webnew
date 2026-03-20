@@ -598,12 +598,12 @@ const en: LocaleType = {
       SubTitle: "Controls how much the model thinks before responding",
     },
     PromptOptimizer: {
-      Title: "Prompt Enhancer",
-      Model: "Enhancer Model",
-      ModelSubTitle: "Model used to enhance prompts",
+      Title: "Prompt Optimizer",
+      Model: "Optimizer Model",
+      ModelSubTitle: "Model used to optimize prompts",
       SelectModel: "Select a model...",
-      Instructions: "Enhancer Instructions",
-      InstructionsSubTitle: "Instructions for the prompt enhancer",
+      Instructions: "Optimizer Instructions",
+      InstructionsSubTitle: "Instructions for the prompt optimizer",
       Edit: "Edit Instructions",
     },
     Temperature: {
