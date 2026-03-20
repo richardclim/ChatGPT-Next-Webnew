@@ -26,6 +26,11 @@ const profileUpdatesSchema = z
       .describe(
         "The value(s) of the attribute. Always return an array of strings. If the output is only one value, wrap it in an array.",
       ),
+    action: z
+      .enum(["add", "replace", "delete"])
+      .describe(
+        "The type of update to perform. 'add' to append new values to a list, 'replace' to overwrite existing values entirely, 'delete' to remove the attribute.",
+      ),
   })
   .strict();
 
@@ -94,6 +99,10 @@ export function buildExtractionPrompt(
       5. **Category:** The broad domain (e.g., "coding", "personal", "health").
       6. **Attribute:** The specific variable name (e.g., "language", "city", "allergies").
       7. **Value:** The factual value(s) as an array of strings. 
+      8. **Action:** Specify the operation:
+         - "add": to append new elements to an ongoing list (e.g., learned a new programming language).
+         - "replace": to completely overwrite a singular fact (e.g., changed address, updated age).
+         - "delete": to remove specific elements from a list (provide the elements in "value"), or to remove the entire fact completely (provide an empty array [] for "value").
 
       PART 2: EPISODIC HISTORY SUMMARY (STRING)
       1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval. 
@@ -340,67 +349,95 @@ export const useMemoryStore = createPersistStore(
                     const keywords = rawKeywords as string[];
 
                     // 1. Handle Profile Updates
-                    // Convert array format to nested UserProfile object format
                     if (
                       Array.isArray(profile_updates) &&
                       profile_updates.length > 0
                     ) {
-                      const profileObject: UserProfile = {};
+                      // Deep clone the existing profile
+                      const existingProfile = get().content;
+                      const newProfile = JSON.parse(
+                        JSON.stringify(existingProfile),
+                      );
 
                       for (const update of profile_updates) {
-                        const { category, attribute, value } = update;
-                        if (category && attribute && value !== undefined) {
-                          if (!profileObject[category]) {
-                            profileObject[category] = {};
-                          }
-                          profileObject[category][attribute] = value;
+                        const {
+                          category,
+                          attribute,
+                          value,
+                          action = "add",
+                        } = update;
+                        if (!category || !attribute) continue;
+
+                        if (!newProfile[category]) {
+                          newProfile[category] = {};
                         }
-                      }
 
-                      // Deep merge with existing profile
-                      const existingProfile = get().content;
-                      const newProfile = { ...existingProfile };
-                      for (const category of Object.keys(profileObject)) {
-                        const existingCategory =
-                          existingProfile[category] || {};
-                        const newCategory = profileObject[category];
+                        const existingVal = newProfile[category][attribute];
 
-                        // Merge attributes, handling arrays specially
-                        const mergedCategory = { ...existingCategory };
-                        for (const attr of Object.keys(newCategory)) {
-                          const existingVal = existingCategory[attr];
-                          const newVal = newCategory[attr];
-
+                        if (action === "delete") {
                           if (
                             Array.isArray(existingVal) &&
-                            Array.isArray(newVal)
+                            Array.isArray(value) &&
+                            value.length > 0
+                          ) {
+                            // Filter out the requested values from the existing array
+                            const filtered = existingVal.filter(
+                              (item) => !value.includes(String(item)),
+                            );
+                            if (filtered.length === 0) {
+                              delete newProfile[category][attribute];
+                            } else {
+                              newProfile[category][attribute] = filtered;
+                            }
+                          } else {
+                            // Either 'value' is empty [] or 'existingVal' is a scalar/undefined. 
+                            // Delete the entire attribute completely.
+                            delete newProfile[category][attribute];
+                          }
+
+                          // Clean up empty categories directly
+                          if (
+                            newProfile[category] &&
+                            Object.keys(newProfile[category]).length === 0
+                          ) {
+                            delete newProfile[category];
+                          }
+                        } else if (action === "replace") {
+                          // Completely overwrite the existing value
+                          newProfile[category][attribute] = value;
+                        } else {
+                          // action === "add"
+                          if (existingVal === undefined) {
+                            newProfile[category][attribute] = value;
+                          } else if (
+                            Array.isArray(existingVal) &&
+                            Array.isArray(value)
                           ) {
                             // Both arrays - merge and deduplicate
-                            mergedCategory[attr] = [
-                              ...new Set([...existingVal, ...newVal]),
+                            newProfile[category][attribute] = [
+                              ...new Set([...existingVal, ...value]),
                             ];
                           } else if (
                             !Array.isArray(existingVal) &&
                             existingVal !== undefined &&
-                            Array.isArray(newVal)
+                            Array.isArray(value)
                           ) {
                             // Legacy migration: existing is non-array, new is array
                             // Convert existing to array and merge
-                            mergedCategory[attr] = [
-                              ...new Set([String(existingVal), ...newVal]),
+                            newProfile[category][attribute] = [
+                              ...new Set([String(existingVal), ...value]),
                             ];
                           } else {
-                            // New attribute or type change - use new value
-                            mergedCategory[attr] = newVal;
+                            // Fallback for non-arrays when adding
+                            newProfile[category][attribute] = value;
                           }
                         }
-                        newProfile[category] = mergedCategory;
                       }
 
                       get().updateContent(newProfile);
                       console.log(
                         "[Memory] Profile updated successfully",
-                        profileObject,
+                        profile_updates,
                       );
                     } else {
                       console.log("[Memory] No profile updates needed");
