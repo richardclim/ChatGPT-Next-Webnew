@@ -2410,6 +2410,8 @@ function _Chat() {
                       ...modelConfig,
                       model: modelConfig.promptOptimizerModel,
                       providerName: providerName,
+                      reasoningEffort:
+                        modelConfig.promptOptimizerReasoningEffort,
                       stream: true,
                       useStandardCompletion: true,
                     },

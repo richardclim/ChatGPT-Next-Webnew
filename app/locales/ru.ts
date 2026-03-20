@@ -451,6 +451,10 @@ const ru: PartialLocaleType = {
       Title: "Модель сжатия",
       SubTitle: "Модель, используемая для сжатия истории",
     },
+    ReasoningEffort: {
+      Title: "Уровень рассуждения",
+      SubTitle: "Контролирует, сколько модель думает перед ответом",
+    },
     Temperature: {
       Title: "Случайность (temperature)",
       SubTitle: "Чем больше значение, тем более случайные ответы",

@@ -38,6 +38,7 @@ import { preProcessImageContent } from "@/app/utils/chat";
 import { nanoid } from "nanoid";
 import { RequestPayload } from "./openai";
 import { fetch } from "@/app/utils/stream";
+import { resolveReasoningEffort } from "@/app/utils/model-utils";
 
 export class GeminiProApi implements LLMApi {
   path(path: string, shouldStream = false): string {
@@ -107,11 +108,16 @@ export class GeminiProApi implements LLMApi {
     for (const v of options.messages as ChatMessage[]) {
       let content = (await preProcessImageContent(v.content)) as any;
       if (v.role === "assistant" && v.tools && v.tools.length > 0) {
-        const toolLogs = v.tools.map(t => {
-          const name = t.function?.name || t.type;
-          const args = typeof t.function?.arguments === 'string' ? t.function?.arguments : JSON.stringify(t.function?.arguments || {});
-          return `Executed: ${name}\nArguments: ${args}`;
-        }).join('\n\n');
+        const toolLogs = v.tools
+          .map((t) => {
+            const name = t.function?.name || t.type;
+            const args =
+              typeof t.function?.arguments === "string"
+                ? t.function?.arguments
+                : JSON.stringify(t.function?.arguments || {});
+            return `Executed: ${name}\nArguments: ${args}`;
+          })
+          .join("\n\n");
         content = `${content}\n\n<tool_memory>\nTurn ID: ${v.id}\n${toolLogs}\n</tool_memory>`;
       }
       _messages.push({ role: v.role, content });
@@ -200,6 +206,12 @@ export class GeminiProApi implements LLMApi {
       options.config.model.includes("pro") ||
       options.config.model.includes("gemini-3-flash-preview");
 
+    // Resolve effort from config, falling back to highest available
+    const effortLevel = resolveReasoningEffort(
+      options.config.model,
+      modelConfig.reasoningEffort,
+    );
+
     const requestPayload = {
       ...(systemInstructionText && {
         system_instruction: {
@@ -221,20 +233,9 @@ export class GeminiProApi implements LLMApi {
         // "topK": modelConfig.top_k,
         ...(isThinking && {
           thinking_config: {
-            ...(options.config.model.includes("gemini-3-flash-preview")
-              ? {
-                  thinking_level:
-                    options.config.model.split("-").pop() === "preview"
-                      ? "low"
-                      : options.config.model.split("-").pop(),
-                }
-              : options.config.model.includes("gemini-3.1-pro-preview")
-              ? {
-                  thinking_level: "high",
-                }
-              : {
-                  thinking_budget: 32768,
-                }),
+            ...(effortLevel
+              ? { thinking_level: effortLevel }
+              : { thinking_budget: 32768 }),
             include_thoughts: true,
           },
         }),

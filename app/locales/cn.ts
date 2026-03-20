@@ -588,6 +588,10 @@ const cn = {
       SubTitle: "用于压缩历史记录、生成对话标题的模型",
       SelectModel: "选择模型...",
     },
+    ReasoningEffort: {
+      Title: "推理强度",
+      SubTitle: "控制模型在回复前的思考程度",
+    },
     PromptOptimizer: {
       Title: "提示词优化器",
       Model: "优化模型",

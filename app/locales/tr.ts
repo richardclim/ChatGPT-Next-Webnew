@@ -451,6 +451,11 @@ const tr: PartialLocaleType = {
       Title: "Sıkıştırma Modeli",
       SubTitle: "Geçmişi sıkıştırmak için kullanılan model",
     },
+    ReasoningEffort: {
+      Title: "Akıl yürütme düzeyi",
+      SubTitle:
+        "Modelin yanıt vermeden önce ne kadar düşüneceğini kontrol eder",
+    },
     Temperature: {
       Title: "Rastgelelik (temperature)",
       SubTitle: "Değer arttıkça yanıt daha rastgele olur",

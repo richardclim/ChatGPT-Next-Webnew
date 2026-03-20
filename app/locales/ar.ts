@@ -440,6 +440,10 @@ const ar: PartialLocaleType = {
       Title: "نموذج الضغط",
       SubTitle: "النموذج المستخدم لضغط السجل التاريخي",
     },
+    ReasoningEffort: {
+      Title: "مستوى التفكير",
+      SubTitle: "يتحكم في مقدار تفكير النموذج قبل الرد",
+    },
     Temperature: {
       Title: "العشوائية (temperature)",
       SubTitle: "كلما زادت القيمة، زادت العشوائية في الردود",

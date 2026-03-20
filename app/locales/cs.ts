@@ -447,6 +447,10 @@ const cs: PartialLocaleType = {
       Title: "Kompresní model",
       SubTitle: "Model používaný pro kompresi historie",
     },
+    ReasoningEffort: {
+      Title: "Úroveň uvažování",
+      SubTitle: "Ovládá, kolik model přemýšlí před odpovědí",
+    },
     Temperature: {
       Title: "Náhodnost (temperature)",
       SubTitle: "Čím vyšší hodnota, tím náhodnější odpovědi",

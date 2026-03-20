@@ -85,6 +85,9 @@ export const DEFAULT_CONFIG = {
     promptOptimizerModel: "",
     promptOptimizerProviderName: "",
     promptOptimizerInstructions: "",
+    reasoningEffort: "",
+    compressModelReasoningEffort: "",
+    promptOptimizerReasoningEffort: "",
     enableTavily: false,
     tavilySearchType: "basic" as "basic" | "advanced" | "extract",
     tavilyMaxResults: 5,
@@ -204,7 +207,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.3,
+    version: 4.4,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -272,6 +275,12 @@ export const useAppConfig = createPersistStore(
 
       if (version < 4.3) {
         state.modelConfig.systemPrompt = "";
+      }
+
+      if (version < 4.4) {
+        state.modelConfig.reasoningEffort = "";
+        state.modelConfig.compressModelReasoningEffort = "";
+        state.modelConfig.promptOptimizerReasoningEffort = "";
       }
 
       return state as any;

@@ -41,6 +41,8 @@ import {
 import { ModelConfigList } from "./model-config";
 import { ModelSelect } from "./model-select";
 import type { GroupedModels } from "./model-select";
+import { getModelEffortLevels } from "../utils/model-utils";
+import modelConfigStyles from "./model-config.module.scss";
 
 import { IconButton } from "./button";
 import {
@@ -994,6 +996,19 @@ export function Settings() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const config = useAppConfig();
   const updateConfig = config.update;
+
+  // Extract all memory store hook reads at the top to avoid conditional hook calls
+  const memoryEnabled = useMemoryStore((state) => state.enabled);
+  const memoryModel = useMemoryStore((state) => state.memoryModelConfig.model);
+  const memoryProviderName = useMemoryStore(
+    (state) => state.memoryModelConfig.providerName,
+  );
+  const memoryReasoningEffort = useMemoryStore(
+    (state) => state.memoryModelConfig.reasoningEffort,
+  );
+  const memoryContextInjectionDisplay = useMemoryStore(
+    (state) => state.enableContextInjectionDisplay,
+  );
 
   const updateStore = useUpdateStore();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
@@ -2343,7 +2358,7 @@ export function Settings() {
             <input
               aria-label={Locale.UserProfile.Enable}
               type="checkbox"
-              checked={useMemoryStore((state) => state.enabled)}
+              checked={memoryEnabled}
               onChange={(e) =>
                 useMemoryStore.getState().setEnabled(e.currentTarget.checked)
               }
@@ -2368,22 +2383,62 @@ export function Settings() {
             title={Locale.UserProfile.Model}
             subTitle={Locale.UserProfile.ModelSubTitle}
           >
-            <ModelSelect
-              aria-label={Locale.UserProfile.Model}
-              value={`${useMemoryStore(
-                (state) => state.memoryModelConfig.model,
-              )}@${useMemoryStore(
-                (state) => state.memoryModelConfig.providerName,
-              )}`}
-              models={groupModels}
-              onChange={(val) => {
-                const [model, providerName] = getModelProvider(val);
-                useMemoryStore.getState().updateMemoryModelConfig((config) => {
-                  config.model = model;
-                  config.providerName = providerName as ServiceProvider;
-                });
-              }}
-            />
+            <div className={modelConfigStyles["model-effort-row"]}>
+              <ModelSelect
+                aria-label={Locale.UserProfile.Model}
+                value={`${memoryModel}@${memoryProviderName}`}
+                models={groupModels}
+                onChange={(val) => {
+                  const [model, providerName] = getModelProvider(val);
+                  useMemoryStore
+                    .getState()
+                    .updateMemoryModelConfig((config) => {
+                      config.model = model;
+                      config.providerName = providerName as ServiceProvider;
+                      config.reasoningEffort = "";
+                    });
+                }}
+              />
+              {getModelEffortLevels(memoryModel) && (
+                <>
+                  <select
+                    aria-label={Locale.Settings.ReasoningEffort.Title}
+                    className={modelConfigStyles["effort-select"]}
+                    value={memoryReasoningEffort || ""}
+                    onChange={(e) => {
+                      useMemoryStore
+                        .getState()
+                        .updateMemoryModelConfig((config) => {
+                          config.reasoningEffort = e.target.value;
+                        });
+                    }}
+                  >
+                    <option value="">Default (highest)</option>
+                    {getModelEffortLevels(memoryModel)?.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                  <span className={modelConfigStyles["effort-info"]}>
+                    <button
+                      type="button"
+                      className={modelConfigStyles["effort-info-btn"]}
+                      aria-label={Locale.Settings.ReasoningEffort.SubTitle}
+                      tabIndex={0}
+                    >
+                      i
+                    </button>
+                    <span
+                      className={modelConfigStyles["effort-tooltip"]}
+                      role="tooltip"
+                    >
+                      {Locale.Settings.ReasoningEffort.SubTitle}
+                    </span>
+                  </span>
+                </>
+              )}
+            </div>
           </ListItem>
           <ListItem
             title={Locale.UserProfile.InjectionDisplay.Title}
@@ -2392,9 +2447,7 @@ export function Settings() {
             <input
               aria-label={Locale.UserProfile.InjectionDisplay.Title}
               type="checkbox"
-              checked={useMemoryStore(
-                (state) => state.enableContextInjectionDisplay,
-              )}
+              checked={memoryContextInjectionDisplay}
               onChange={(e) =>
                 useMemoryStore
                   .getState()

@@ -448,6 +448,10 @@ const id: PartialLocaleType = {
       Title: "Model Kompresi",
       SubTitle: "Model yang digunakan untuk mengompres riwayat",
     },
+    ReasoningEffort: {
+      Title: "Upaya Penalaran",
+      SubTitle: "Mengontrol seberapa banyak model berpikir sebelum merespons",
+    },
     Temperature: {
       Title: "Randomness (temperature)",
       SubTitle: "Semakin tinggi nilainya, semakin acak responsnya",

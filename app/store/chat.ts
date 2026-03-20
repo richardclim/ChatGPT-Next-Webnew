@@ -1694,6 +1694,9 @@ export const useChatStore = createPersistStore(
            * this param is just shit
            **/
           const { max_tokens, ...modelcfg } = modelConfig;
+          const compressEffort = modelConfig.compressModel
+            ? modelConfig.compressModelReasoningEffort
+            : "";
           api.llm.chat({
             messages: stripThinkingFromMessages(toBeSummarizedMsgs).concat(
               createMessage({
@@ -1707,6 +1710,7 @@ export const useChatStore = createPersistStore(
               stream: true,
               model,
               providerName,
+              reasoningEffort: compressEffort,
               useStandardCompletion: true,
               suppressReasoningOutput: true,
             },

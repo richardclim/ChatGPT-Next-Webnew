@@ -453,6 +453,10 @@ const no: PartialLocaleType = {
       Title: "Komprimeringsmodell",
       SubTitle: "Modell brukt for å komprimere historikken",
     },
+    ReasoningEffort: {
+      Title: "Resonneringsinnsats",
+      SubTitle: "Styrer hvor mye modellen tenker før den svarer",
+    },
     Temperature: {
       Title: "Tilfeldighet (temperature)",
       SubTitle: "Høyere verdi gir mer tilfeldige svar",

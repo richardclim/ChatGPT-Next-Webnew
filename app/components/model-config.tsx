@@ -11,8 +11,56 @@ import type { GroupedModels } from "./model-select";
 import { useAllModels } from "../utils/hooks";
 import { groupBy } from "lodash-es";
 import { getModelProvider } from "../utils/model";
-import { getModelMaxOutputTokens } from "../utils/model-utils";
+import {
+  getModelMaxOutputTokens,
+  getModelEffortLevels,
+} from "../utils/model-utils";
 import EditIcon from "../icons/edit.svg";
+
+/**
+ * Inline effort dropdown shown next to a model selector when the
+ * selected model supports reasoning effort levels.
+ * Includes a small (i) info badge with a CSS-only tooltip.
+ */
+function EffortSelect(props: {
+  model: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const levels = getModelEffortLevels(props.model);
+  if (!levels) return null;
+
+  return (
+    <>
+      <select
+        aria-label={Locale.Settings.ReasoningEffort.Title}
+        className={styles["effort-select"]}
+        value={props.value || ""}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+      >
+        <option value="">Default (highest)</option>
+        {levels.map((level) => (
+          <option key={level} value={level}>
+            {level}
+          </option>
+        ))}
+      </select>
+      <span className={styles["effort-info"]}>
+        <button
+          type="button"
+          className={styles["effort-info-btn"]}
+          aria-label={Locale.Settings.ReasoningEffort.SubTitle}
+          tabIndex={0}
+        >
+          i
+        </button>
+        <span className={styles["effort-tooltip"]} role="tooltip">
+          {Locale.Settings.ReasoningEffort.SubTitle}
+        </span>
+      </span>
+    </>
+  );
+}
 
 export function ModelConfigList(props: {
   modelConfig: ModelConfig;
@@ -30,28 +78,41 @@ export function ModelConfigList(props: {
   return (
     <>
       <ListItem title={Locale.Settings.Model}>
-        <ModelSelect
-          aria-label={Locale.Settings.Model}
-          value={value}
-          models={groupModels}
-          onChange={(val) => {
-            const [model, providerName] = getModelProvider(val);
-            props.updateConfig((config) => {
-              const oldModelMax = getModelMaxOutputTokens(config.model);
-              config.model = ModalConfigValidator.model(model);
-              config.providerName = providerName as ServiceProvider;
-              const newModelMax = getModelMaxOutputTokens(model);
-              if (config.max_tokens > newModelMax) {
-                config.max_tokens = newModelMax;
-              } else if (
-                newModelMax > oldModelMax &&
-                config.max_tokens < newModelMax
-              ) {
-                config.max_tokens = newModelMax;
-              }
-            });
-          }}
-        />
+        <div className={styles["model-effort-row"]}>
+          <ModelSelect
+            aria-label={Locale.Settings.Model}
+            value={value}
+            models={groupModels}
+            onChange={(val) => {
+              const [model, providerName] = getModelProvider(val);
+              props.updateConfig((config) => {
+                const oldModelMax = getModelMaxOutputTokens(config.model);
+                config.model = ModalConfigValidator.model(model);
+                config.providerName = providerName as ServiceProvider;
+                const newModelMax = getModelMaxOutputTokens(model);
+                if (config.max_tokens > newModelMax) {
+                  config.max_tokens = newModelMax;
+                } else if (
+                  newModelMax > oldModelMax &&
+                  config.max_tokens < newModelMax
+                ) {
+                  config.max_tokens = newModelMax;
+                }
+                // Reset effort when switching models
+                config.reasoningEffort = "";
+              });
+            }}
+          />
+          <EffortSelect
+            model={props.modelConfig.model}
+            value={props.modelConfig.reasoningEffort}
+            onChange={(v) =>
+              props.updateConfig((config) => {
+                config.reasoningEffort = v;
+              })
+            }
+          />
+        </div>
       </ListItem>
       <ListItem
         title={Locale.Settings.Temperature.Title}
@@ -61,7 +122,7 @@ export function ModelConfigList(props: {
           aria={Locale.Settings.Temperature.Title}
           value={props.modelConfig.temperature?.toFixed(1)}
           min="0"
-          max="1" // lets limit it to 0-1
+          max="1"
           step="0.1"
           onChange={(e) => {
             props.updateConfig(
@@ -298,38 +359,62 @@ export function ModelConfigList(props: {
         title={Locale.Settings.PromptOptimizer.Model}
         subTitle={Locale.Settings.PromptOptimizer.ModelSubTitle}
       >
-        <ModelSelect
-          aria-label={Locale.Settings.PromptOptimizer.Model}
-          value={`${props.modelConfig.promptOptimizerModel}@${props.modelConfig?.promptOptimizerProviderName}`}
-          models={groupModels}
-          placeholder={Locale.Settings.PromptOptimizer.SelectModel}
-          onChange={(val) => {
-            const [model, providerName] = getModelProvider(val);
-            props.updateConfig((config) => {
-              config.promptOptimizerModel = ModalConfigValidator.model(model);
-              config.promptOptimizerProviderName =
-                (providerName as ServiceProvider) || ServiceProvider.OpenAI;
-            });
-          }}
-        />
+        <div className={styles["model-effort-row"]}>
+          <ModelSelect
+            aria-label={Locale.Settings.PromptOptimizer.Model}
+            value={`${props.modelConfig.promptOptimizerModel}@${props.modelConfig?.promptOptimizerProviderName}`}
+            models={groupModels}
+            placeholder={Locale.Settings.PromptOptimizer.SelectModel}
+            onChange={(val) => {
+              const [model, providerName] = getModelProvider(val);
+              props.updateConfig((config) => {
+                config.promptOptimizerModel = ModalConfigValidator.model(model);
+                config.promptOptimizerProviderName =
+                  (providerName as ServiceProvider) || ServiceProvider.OpenAI;
+                config.promptOptimizerReasoningEffort = "";
+              });
+            }}
+          />
+          <EffortSelect
+            model={props.modelConfig.promptOptimizerModel}
+            value={props.modelConfig.promptOptimizerReasoningEffort}
+            onChange={(v) =>
+              props.updateConfig((config) => {
+                config.promptOptimizerReasoningEffort = v;
+              })
+            }
+          />
+        </div>
       </ListItem>
       <ListItem
         title={Locale.Settings.CompressModel.Title}
         subTitle={Locale.Settings.CompressModel.SubTitle}
       >
-        <ModelSelect
-          aria-label={Locale.Settings.CompressModel.Title}
-          value={compressModelValue}
-          models={groupModels}
-          placeholder={Locale.Settings.CompressModel.SelectModel}
-          onChange={(val) => {
-            const [model, providerName] = getModelProvider(val);
-            props.updateConfig((config) => {
-              config.compressModel = ModalConfigValidator.model(model);
-              config.compressProviderName = providerName as ServiceProvider;
-            });
-          }}
-        />
+        <div className={styles["model-effort-row"]}>
+          <ModelSelect
+            aria-label={Locale.Settings.CompressModel.Title}
+            value={compressModelValue}
+            models={groupModels}
+            placeholder={Locale.Settings.CompressModel.SelectModel}
+            onChange={(val) => {
+              const [model, providerName] = getModelProvider(val);
+              props.updateConfig((config) => {
+                config.compressModel = ModalConfigValidator.model(model);
+                config.compressProviderName = providerName as ServiceProvider;
+                config.compressModelReasoningEffort = "";
+              });
+            }}
+          />
+          <EffortSelect
+            model={props.modelConfig.compressModel}
+            value={props.modelConfig.compressModelReasoningEffort}
+            onChange={(v) =>
+              props.updateConfig((config) => {
+                config.compressModelReasoningEffort = v;
+              })
+            }
+          />
+        </div>
       </ListItem>
     </>
   );

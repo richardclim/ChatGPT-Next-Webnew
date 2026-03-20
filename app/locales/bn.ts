@@ -448,6 +448,10 @@ const bn: PartialLocaleType = {
       Title: "সংকোচন মডেল",
       SubTitle: "ইতিহাস সংকুচিত করার জন্য ব্যবহৃত মডেল",
     },
+    ReasoningEffort: {
+      Title: "যুক্তি প্রচেষ্টা",
+      SubTitle: "উত্তর দেওয়ার আগে মডেল কতটা চিন্তা করে তা নিয়ন্ত্রণ করে",
+    },
     Temperature: {
       Title: "যাদুকরিতা (temperature)",
       SubTitle: "মান বাড়ালে উত্তর বেশি এলোমেলো হবে",

@@ -201,6 +201,7 @@ export const useMemoryStore = createPersistStore(
       model: "gpt-4o-mini",
       providerName: "OpenAI",
       temperature: 0.5,
+      reasoningEffort: "",
     } as MemoryConfig,
   },
   (set, _get) => {
@@ -306,7 +307,9 @@ export const useMemoryStore = createPersistStore(
                 responseMimeType: geminiJsonMode
                   ? "application/json"
                   : undefined,
-                responseJsonSchema: geminiJsonMode ? memoryJsonSchemaCache : undefined,
+                responseJsonSchema: geminiJsonMode
+                  ? memoryJsonSchemaCache
+                  : undefined,
                 response_format: openAIJsonMode
                   ? {
                       type: "json_schema",
@@ -426,6 +429,7 @@ export const useMemoryStore = createPersistStore(
                           chunks: [chunk],
                           provider: config.providerName,
                           model: config.model,
+                          reasoningEffort: config.reasoningEffort,
                         }),
                         headers: {
                           "Content-Type": "application/json",

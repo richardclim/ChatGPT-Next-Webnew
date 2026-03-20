@@ -5,7 +5,10 @@ import { ModelProvider } from "@/app/constant";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { extractFirstJsonObject } from "@/app/utils/json-parser";
-import { parseGpt5Model } from "@/app/utils/model-utils";
+import {
+  parseGpt5Model,
+  resolveReasoningEffort,
+} from "@/app/utils/model-utils";
 
 const memoryActionSchema = z
   .object({
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { chunks, provider, model } = body;
+    const { chunks, provider, model, reasoningEffort } = body;
 
     // Build the LLM callback
     const askLLM = async (existing: string, newContent: string) => {
@@ -85,7 +88,7 @@ export async function POST(req: NextRequest) {
       } else {
         fetchUrl += "/v1/chat/completions";
 
-        const gpt5Info = parseGpt5Model(model || "");
+        const gpt5Info = parseGpt5Model(model || "", reasoningEffort);
 
         payload = {
           model: gpt5Info.normalizedModel,

@@ -79,6 +79,8 @@ export interface LLMConfig {
    * you only need the final result.
    */
   suppressReasoningOutput?: boolean;
+  /** Reasoning effort level for models that support it */
+  reasoningEffort?: string;
 }
 
 export interface SpeechOptions {

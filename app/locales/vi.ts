@@ -447,6 +447,10 @@ const vi: PartialLocaleType = {
       Title: "Mô hình nén",
       SubTitle: "Mô hình được sử dụng để nén lịch sử",
     },
+    ReasoningEffort: {
+      Title: "Mức độ suy luận",
+      SubTitle: "Kiểm soát mức độ suy nghĩ của mô hình trước khi phản hồi",
+    },
     Temperature: {
       Title: "Độ ngẫu nhiên (temperature)",
       SubTitle: "Giá trị càng lớn, câu trả lời càng ngẫu nhiên",

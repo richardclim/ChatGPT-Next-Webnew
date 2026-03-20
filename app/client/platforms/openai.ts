@@ -57,7 +57,10 @@ import {
   getTimeoutMSByModel,
 } from "@/app/utils";
 import { fetch } from "@/app/utils/stream";
-import { parseGpt5Model } from "@/app/utils/model-utils";
+import {
+  parseGpt5Model,
+  resolveReasoningEffort,
+} from "@/app/utils/model-utils";
 
 export interface OpenAIListModelResponse {
   object: string;
@@ -98,7 +101,7 @@ export interface ResponseRequestPayload extends BaseRequest {
         | { type: "function_call_output"; call_id: string; output: string }
       >;
   reasoning: {
-    effort: "none" | "low" | "minimal" | "medium" | "high" | "xhigh";
+    effort: "none" | "low" | "medium" | "high" | "xhigh";
     summary: "auto";
   };
   text: {
@@ -314,7 +317,10 @@ export class ChatGPTApi implements LLMApi {
       options.config.model.startsWith("o4-mini");
 
     // Unified GPT-5 model parsing
-    const gpt5Info = parseGpt5Model(options.config.model);
+    const gpt5Info = parseGpt5Model(
+      options.config.model,
+      modelConfig.reasoningEffort,
+    );
     const isGpt5 =
       gpt5Info.isGpt5 &&
       !options.config.useStandardCompletion &&
@@ -359,7 +365,8 @@ export class ChatGPTApi implements LLMApi {
           // only send latest user turn; rely on previous_response_id for history
           input: responsesInput,
           reasoning: {
-            effort: gpt5Info.reasoningEffort!,
+            effort:
+              gpt5Info.reasoningEffort as ResponseRequestPayload["reasoning"]["effort"],
             summary: "auto",
           },
           text: {
@@ -378,11 +385,16 @@ export class ChatGPTApi implements LLMApi {
             : getMessageTextContent(v);
           if (!(isO1OrO3 && v.role === "system")) {
             if (v.role === "assistant" && v.tools && v.tools.length > 0) {
-              const toolLogs = v.tools.map(t => {
-                const name = t.function?.name || t.type;
-                const args = typeof t.function?.arguments === 'string' ? t.function?.arguments : JSON.stringify(t.function?.arguments || {});
-                return `Executed: ${name}\nArguments: ${args}`;
-              }).join('\n\n');
+              const toolLogs = v.tools
+                .map((t) => {
+                  const name = t.function?.name || t.type;
+                  const args =
+                    typeof t.function?.arguments === "string"
+                      ? t.function?.arguments
+                      : JSON.stringify(t.function?.arguments || {});
+                  return `Executed: ${name}\nArguments: ${args}`;
+                })
+                .join("\n\n");
               content = `${content}\n\n<tool_memory>\nTurn ID: ${v.id}\n${toolLogs}\n</tool_memory>`;
             }
             messages.push({ role: v.role, content });
@@ -400,11 +412,20 @@ export class ChatGPTApi implements LLMApi {
           ...(modelConfig.providerName == ServiceProvider.Anthropic && {
             include_reasoning: true,
           }),
-          ...(gpt5Info.reasoningEffort && {
-            // Chat Completions uses top-level reasoning_effort string;
-            // Responses API uses nested reasoning object (handled in isGpt5 branch above)
-            reasoning_effort: gpt5Info.reasoningEffort,
-          }),
+          ...(gpt5Info.isGpt5 &&
+            gpt5Info.reasoningEffort && {
+              reasoning_effort: gpt5Info.reasoningEffort,
+            }),
+          ...(!gpt5Info.isGpt5 &&
+            resolveReasoningEffort(
+              options.config.model,
+              modelConfig.reasoningEffort,
+            ) && {
+              reasoning_effort: resolveReasoningEffort(
+                options.config.model,
+                modelConfig.reasoningEffort,
+              ),
+            }),
           ...(options.config.responseJsonSchema
             ? {
                 response_format: {

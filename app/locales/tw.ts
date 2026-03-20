@@ -406,6 +406,10 @@ const tw = {
       Title: "壓縮模型",
       SubTitle: "用於壓縮歷史記錄的模型",
     },
+    ReasoningEffort: {
+      Title: "推理強度",
+      SubTitle: "控制模型在回覆前的思考程度",
+    },
     Temperature: {
       Title: "隨機性 (temperature)",
       SubTitle: "值越大，回應越隨機",

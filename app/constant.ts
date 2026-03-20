@@ -575,6 +575,25 @@ export const MODEL_MAX_OUTPUT_TOKENS: [RegExp, number][] = [
 // Fallback when model is not in the lookup
 export const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
 
+/**
+ * Maps model name patterns to their supported reasoning effort levels.
+ * Order matters — first match wins (same as MODEL_MAX_OUTPUT_TOKENS).
+ * Empty array means the model does not support effort configuration.
+ */
+export const MODEL_EFFORT_LEVELS: [RegExp, string[]][] = [
+  // Google — gemini-3-flash-preview supports thinking levels
+  [/^gemini-3-flash-preview/, ["minimal", "low", "medium", "high"]],
+  [/^gemini-3\.1-pro/, ["low", "medium", "high"]],
+  // Google — other thinking models use budget, not level (no UI selector)
+  [/^gemini-.*-thinking/, []],
+  // OpenAI — GPT-5 family
+  [/^gpt-5\.2/, ["low", "medium", "high", "xhigh"]],
+  [/^gpt-5-mini/, ["low", "medium", "high"]],
+  [/^gpt-5/, ["low", "medium", "high", "xhigh"]],
+  // OpenAI — o-series
+  [/^o[134]/, ["low", "medium", "high"]],
+];
+
 export const VISION_MODEL_REGEXES = [
   /vision/,
   /gpt-4o/,
@@ -605,8 +624,6 @@ const openaiModels = [
   "gpt-5.2",
   "gpt-5-chat",
   "gpt-5-mini",
-  "gpt-5-mini-medium",
-  "gpt-5-mini-low",
   "gpt-5-nano",
   "gpt-5",
   "gpt-5.4",
@@ -615,9 +632,7 @@ const openaiModels = [
 ];
 
 const googleModels = [
-  "gemini-3-flash-preview-minimal",
-  "gemini-3-flash-preview-low",
-  "gemini-3-flash-preview-high",
+  "gemini-3-flash-preview",
   "gemini-3.1-pro-preview",
   "gemini-3.1-flash-lite-latest",
   "aistudio",

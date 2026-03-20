@@ -383,6 +383,10 @@ const pt: PartialLocaleType = {
       Title: "Modelo de Compressão",
       SubTitle: "Modelo usado para comprimir o histórico",
     },
+    ReasoningEffort: {
+      Title: "Esforço de raciocínio",
+      SubTitle: "Controla o quanto o modelo pensa antes de responder",
+    },
     Temperature: {
       Title: "Temperatura",
       SubTitle: "Um valor maior torna a saída mais aleatória",

@@ -444,6 +444,10 @@ const jp: PartialLocaleType = {
       Title: "圧縮モデル",
       SubTitle: "履歴を圧縮するために使用されるモデル",
     },
+    ReasoningEffort: {
+      Title: "推論レベル",
+      SubTitle: "応答前にモデルがどの程度考えるかを制御します",
+    },
     Temperature: {
       Title: "ランダム性 (temperature)",
       SubTitle: "値が大きいほど応答がランダムになります",

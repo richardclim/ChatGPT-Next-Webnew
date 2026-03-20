@@ -560,6 +560,10 @@ const ko: PartialLocaleType = {
       Title: "압축 모델",
       SubTitle: "기록을 압축하는 데 사용되는 모델",
     },
+    ReasoningEffort: {
+      Title: "추론 수준",
+      SubTitle: "응답 전에 모델이 얼마나 생각할지 제어합니다",
+    },
     Temperature: {
       Title: "무작위성 (temperature)",
       SubTitle: "값이 클수록 응답이 더 무작위적",

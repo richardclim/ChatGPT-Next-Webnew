@@ -593,6 +593,10 @@ const en: LocaleType = {
       SubTitle: "Model used to compress history and generate title",
       SelectModel: "Select a model...",
     },
+    ReasoningEffort: {
+      Title: "Reasoning Effort",
+      SubTitle: "Controls how much the model thinks before responding",
+    },
     PromptOptimizer: {
       Title: "Prompt Enhancer",
       Model: "Enhancer Model",

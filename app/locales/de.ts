@@ -460,6 +460,10 @@ const de: PartialLocaleType = {
       Title: "Kompressionsmodell",
       SubTitle: "Modell zur Komprimierung des Verlaufs",
     },
+    ReasoningEffort: {
+      Title: "Denkaufwand",
+      SubTitle: "Steuert, wie viel das Modell vor der Antwort nachdenkt",
+    },
     Temperature: {
       Title: "Zufälligkeit (temperature)",
       SubTitle: "Je höher der Wert, desto zufälliger die Antwort",

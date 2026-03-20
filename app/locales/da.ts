@@ -536,6 +536,10 @@ const da: PartialLocaleType = {
       Title: "Opsummeringsmodel",
       SubTitle: "Bruges til at korte historik ned og lave titel",
     },
+    ReasoningEffort: {
+      Title: "Ræsonneringsindsats",
+      SubTitle: "Styrer hvor meget modellen tænker før den svarer",
+    },
     Temperature: {
       Title: "Temperatur",
       SubTitle: "Jo højere tal, jo mere kreativt svar",

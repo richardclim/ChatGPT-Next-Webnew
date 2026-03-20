@@ -461,6 +461,10 @@ const it: PartialLocaleType = {
       Title: "Modello di compressione",
       SubTitle: "Modello utilizzato per comprimere la cronologia",
     },
+    ReasoningEffort: {
+      Title: "Sforzo di ragionamento",
+      SubTitle: "Controlla quanto il modello riflette prima di rispondere",
+    },
     Temperature: {
       Title: "Casualità (temperature)",
       SubTitle: "Valore più alto, risposte più casuali",
