@@ -1585,6 +1585,7 @@ export const useChatStore = createPersistStore(
         get().updateTargetSession(session, (session) => {
           session.messages = [];
           session.memoryPrompt = "";
+          session.lastArchivedContextId = undefined;
         });
       },
 

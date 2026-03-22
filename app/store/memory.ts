@@ -255,6 +255,14 @@ export const useMemoryStore = createPersistStore(
         const archiveIndex = lastArchivedContextId
           ? messages.findIndex((m) => m.id === lastArchivedContextId)
           : -1;
+
+        if (lastArchivedContextId && archiveIndex === -1) {
+          console.warn(
+            "[Memory] lastArchivedContextId not found in messages. Aborting extraction to prevent duplicate processing.",
+          );
+          return undefined;
+        }
+
         const newMessages =
           archiveIndex >= 0 ? messages.slice(archiveIndex + 1) : messages;
 

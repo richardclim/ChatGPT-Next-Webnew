@@ -1327,8 +1327,14 @@ function _Chat() {
   const deleteMessage = (msgId?: string) => {
     chatStore.updateTargetSession(
       session,
-      (session) =>
-        (session.messages = session.messages.filter((m) => m.id !== msgId)),
+      (session) => {
+        const index = session.messages.findIndex((m) => m.id === msgId);
+        if (index >= 0 && session.lastArchivedContextId === msgId) {
+          // If we delete the last archived anchor, shift pointer backward
+          session.lastArchivedContextId = index > 0 ? session.messages[index - 1].id : undefined;
+        }
+        session.messages = session.messages.filter((m) => m.id !== msgId);
+      }
     );
   };
 
