@@ -1026,7 +1026,7 @@ export const useChatStore = createPersistStore(
 
         get().summarizeSession(false, targetSession);
 
-        // Check if we should trigger extraction (every 6 new messages)
+        // Check if we should trigger extraction (every 8 new messages)
         const session = get().sessions.find((s) => s.id === targetSession.id);
         if (session && session.enableMemory) {
           const archiveIndex = session.lastArchivedContextId
@@ -1039,10 +1039,10 @@ export const useChatStore = createPersistStore(
               ? session.messages.length - archiveIndex - 1
               : session.messages.length;
 
-          // 3 user + 3 assistant = 6 messages
-          if (newMessageCount >= 6) {
+          // 4 user + 4 assistant = 8 messages
+          if (newMessageCount >= 8) {
             console.log(
-              "[Chat] Triggering extraction - 6+ new messages detected",
+              "[Chat] Triggering extraction - 8+ new messages detected",
             );
             get().triggerExtractionForSession(session);
           }
