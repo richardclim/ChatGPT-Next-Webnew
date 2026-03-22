@@ -231,14 +231,14 @@ export const useMemoryStore = createPersistStore(
       },
 
       updateContent(content: UserProfile) {
-        set(() => ({ content }));
+        get().update((state) => {
+          state.content = content;
+        });
       },
 
       updateMemoryModelConfig(updater: (config: MemoryConfig) => void) {
-        set((state) => {
-          const config = { ...state.memoryModelConfig };
-          updater(config);
-          return { memoryModelConfig: config };
+        get().update((state) => {
+          updater(state.memoryModelConfig);
         });
       },
 
