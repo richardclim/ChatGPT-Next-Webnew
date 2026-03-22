@@ -310,6 +310,7 @@ export const useMemoryStore = createPersistStore(
               messages: [createMessage({ role: "system", content: prompt })],
               config: {
                 ...config,
+                temperature: 1, // Hardcoded fallback for deterministic memory extraction
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true, // Get reasoning quality without reasoning text in response
@@ -601,6 +602,7 @@ export const useMemoryStore = createPersistStore(
               ],
               config: {
                 ...config,
+                temperature: 1, // Hardcoded fallback for deterministic memory extraction
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
@@ -690,6 +692,7 @@ export const useMemoryStore = createPersistStore(
               ],
               config: {
                 ...config,
+                temperature: 1, // Hardcoded fallback for deterministic memory extraction
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
@@ -782,6 +785,7 @@ export const useMemoryStore = createPersistStore(
               messages: [createMessage({ role: "system", content: prompt })],
               config: {
                 ...config,
+                temperature: 1, // Hardcoded fallback for deterministic memory extraction
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,

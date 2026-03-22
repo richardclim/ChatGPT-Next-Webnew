@@ -3,6 +3,18 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { useAccessStore, useChatStore } from "@/app/store";
 import { fetch } from "@/app/utils/stream";
 
+// Helper to remove `additionalProperties` which Google Gemini API strictly prohibits
+function removeAdditionalProperties(schema: any): any {
+  if (typeof schema !== "object" || schema === null) return schema;
+  if ("additionalProperties" in schema) {
+    delete schema.additionalProperties;
+  }
+  for (const key in schema) {
+    removeAdditionalProperties(schema[key]);
+  }
+  return schema;
+}
+
 // --- Zod schema: single source of truth for tavily tool args ---
 export const tavilyArgsSchema = z.object({
   queries: z
@@ -23,10 +35,12 @@ export const tavilyToolDeclaration = {
     name: "tavily_search",
     description:
       "Searches the web for real-time information. Requires an array of optimized search queries.",
-    parameters: zodToJsonSchema(tavilyArgsSchema as any, {
-      $refStrategy: "none",
-      target: "openApi3",
-    }) as any,
+    parameters: removeAdditionalProperties(
+      zodToJsonSchema(tavilyArgsSchema as any, {
+        $refStrategy: "none",
+        target: "openApi3",
+      })
+    ) as any,
   },
 };
 
@@ -94,7 +108,9 @@ export const tavilyRetrieveDeclaration = {
   function: {
     name: "tavily_retrieve",
     description: "Retrieves the full raw JSON text of a previous web search or extraction you performed in a past turn. Use the turn_id provided in your system logs.",
-    parameters: zodToJsonSchema(tavilyRetrieveSchema as any, { $refStrategy: "none", target: "openApi3" }) as any,
+    parameters: removeAdditionalProperties(
+      zodToJsonSchema(tavilyRetrieveSchema as any, { $refStrategy: "none", target: "openApi3" })
+    ) as any,
   },
 };
 
