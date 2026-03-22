@@ -51,7 +51,7 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
       args: t.function?.arguments,
       content: t.content,
       isError: t.isError,
-    }))
+    })),
   );
 
   const { queries, uniqueSources } = useMemo(() => {
@@ -59,85 +59,89 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
     let sources: SourceResult[] = [];
 
     tavilyTools.forEach((t) => {
-    // extract queries
-    if (t.function?.arguments) {
-      try {
-        const args = JSON.parse(t.function.arguments);
-        if (args.queries && Array.isArray(args.queries)) {
-          queries.push(...args.queries);
-        } else if (args.turn_id) {
-          queries.push(`Turn ID: ${args.turn_id}`);
-        }
-      } catch (e) {}
-    }
-
-    // extract sources
-    if (t.content && !t.isError) {
-      try {
-        let contentData = JSON.parse(t.content);
-        if (typeof contentData === "string") {
-          try {
-            contentData = JSON.parse(contentData);
-          } catch {}
-        }
-
-        // tavily_search returns an array of results
-        if (Array.isArray(contentData)) {
-          // It could be the retrieve payload (nested historical tools), which is an array of tools
-          if (contentData.length > 0 && contentData[0].function) {
-            // this is a retrieve payload (tool array)
-            contentData.forEach((archivedTool) => {
-              if (archivedTool.content) {
-                try {
-                  const archivedData = JSON.parse(archivedTool.content);
-                  if (Array.isArray(archivedData)) {
-                    sources.push(...archivedData);
-                  }
-                } catch (e) {}
-              }
-            });
-          } else {
-            sources.push(...contentData);
+      // extract queries
+      if (t.function?.arguments) {
+        try {
+          const args = JSON.parse(t.function.arguments);
+          if (args.queries && Array.isArray(args.queries)) {
+            queries.push(...args.queries);
+          } else if (args.turn_id) {
+            queries.push(`Turn ID: ${args.turn_id}`);
           }
-        } else if (contentData && Array.isArray(contentData.results)) {
-          sources.push(...contentData.results);
-        }
+        } catch (e) {}
+      }
+
+      // extract sources
+      if (t.content && !t.isError) {
+        try {
+          let contentData = JSON.parse(t.content);
+          if (typeof contentData === "string") {
+            try {
+              contentData = JSON.parse(contentData);
+            } catch {}
+          }
+
+          // tavily_search returns an array of results
+          if (Array.isArray(contentData)) {
+            // It could be the retrieve payload (nested historical tools), which is an array of tools
+            if (contentData.length > 0 && contentData[0].function) {
+              // this is a retrieve payload (tool array)
+              contentData.forEach((archivedTool) => {
+                if (archivedTool.content) {
+                  try {
+                    const archivedData = JSON.parse(archivedTool.content);
+                    if (Array.isArray(archivedData)) {
+                      sources.push(...archivedData);
+                    }
+                  } catch (e) {}
+                }
+              });
+            } else {
+              sources.push(...contentData);
+            }
+          } else if (contentData && Array.isArray(contentData.results)) {
+            sources.push(...contentData.results);
+          }
+        } catch (e) {}
+      }
+    });
+
+    // Group by URL to ensure we don't lose any extracted snippets
+    const sourcesMap = new Map<string, SourceResult>();
+
+    sources.forEach((s) => {
+      if (!s || !s.url) return;
+
+      // Normalize URL for grouping
+      let cleanUrl = s.url;
+      try {
+        const parsed = new URL(s.url);
+        parsed.hash = ""; // Remove anchors
+        cleanUrl = parsed.toString();
       } catch (e) {}
-    }
-  });
 
-  // Group by URL to ensure we don't lose any extracted snippets
-  const sourcesMap = new Map<string, SourceResult>();
-  
-  sources.forEach((s) => {
-    if (!s || !s.url) return;
-    
-    // Normalize URL for grouping
-    let cleanUrl = s.url;
-    try {
-      const parsed = new URL(s.url);
-      parsed.hash = ''; // Remove anchors
-      cleanUrl = parsed.toString();
-    } catch(e) {}
+      const existing = sourcesMap.get(cleanUrl);
 
-    const existing = sourcesMap.get(cleanUrl);
-    
-    if (existing) {
-      // If we already have this URL but with a different snippet, safely merge the contents
-      // This is crucial because different queries might extract different parts of the same page
-      if (s.content && existing.content && !existing.content.includes(s.content)) {
+      if (existing) {
+        // If we already have this URL but with a different snippet, safely merge the contents
+        // This is crucial because different queries might extract different parts of the same page
+        if (
+          s.content &&
+          existing.content &&
+          !existing.content.includes(s.content)
+        ) {
           // Combine snippets with an ellipsis separator
           existing.content = `${existing.content} ... ${s.content}`;
-      } else if (s.content && !existing.content) {
+        } else if (s.content && !existing.content) {
           existing.content = s.content;
+        }
+      } else {
+        sourcesMap.set(cleanUrl, { ...s });
       }
-    } else {
-      sourcesMap.set(cleanUrl, { ...s });
-    }
-  });
+    });
 
     const uniqueSources = Array.from(sourcesMap.values()).filter(
-      (s) => s.title && s.url
+      (s) => s.title && s.url,
     );
     const uniqueQueries = Array.from(new Set(queries));
 
@@ -255,7 +259,7 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                             i
                             {activeSnippet === source.url && (
                               <div className={styles["source-tooltip"]}>
-                                {truncate(source.content, 300)}
+                                {truncate(source.content, 2000)}
                               </div>
                             )}
                           </div>

@@ -310,12 +310,16 @@ export class GeminiProApi implements LLMApi {
             {
               role: "model",
               parts: toolCallMessage.tool_calls.map(
-                (tool: ChatMessageTool) => ({
-                  functionCall: {
-                    name: tool?.function?.name,
-                    args: JSON.parse(tool?.function?.arguments as string),
-                  },
-                }),
+                (tool: ChatMessageTool) => {
+                  const { name, arguments: argsStr, ...rest } = tool?.function || {};
+                  return {
+                    functionCall: {
+                      name,
+                      args: argsStr ? JSON.parse(argsStr as string) : {},
+                      ...rest,
+                    },
+                  };
+                }
               ),
             },
             // @ts-ignore
@@ -358,13 +362,14 @@ export class GeminiProApi implements LLMApi {
                 ?.at(0)
                 ?.content.parts.at(0)?.functionCall;
               if (functionCall) {
-                const { name, args } = functionCall;
+                const { name, args, ...rest } = functionCall;
                 runTools.push({
                   id: nanoid(),
                   type: "function",
                   function: {
                     name,
                     arguments: JSON.stringify(args),
+                    ...rest,
                   },
                 });
               }
@@ -401,13 +406,14 @@ export class GeminiProApi implements LLMApi {
               ?.at(0)
               ?.content.parts.at(0)?.functionCall;
             if (functionCall) {
-              const { name, args } = functionCall;
+              const { name, args, ...rest } = functionCall;
               runTools.push({
                 id: nanoid(),
                 type: "function",
                 function: {
                   name,
                   arguments: JSON.stringify(args), // utils.chat call function, using JSON.parse
+                  ...rest,
                 },
               });
             }

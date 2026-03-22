@@ -58,6 +58,7 @@ export type ChatMessageTool = {
   function?: {
     name: string;
     arguments?: string;
+    [key: string]: any;
   };
   content?: string;
   isError?: boolean;
