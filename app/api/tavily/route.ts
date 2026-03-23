@@ -118,12 +118,17 @@ export async function POST(req: NextRequest) {
     await Promise.all(promises);
 
     const uniqueResultsMap = new Map<string, any>();
+    const MAX_CONTENT_LENGTH = 20000;
 
     for (const item of aggregatedResults) {
       // Handle Search API results (grouped by query)
       if (item.query && Array.isArray(item.results)) {
         for (const result of item.results) {
           if (!result.url) continue;
+
+          if (result.raw_content && result.raw_content.length > MAX_CONTENT_LENGTH) {
+            result.raw_content = result.raw_content.slice(0, MAX_CONTENT_LENGTH) + "\n\n...[Extracted content truncated at 20k characters for length]";
+          }
 
           if (uniqueResultsMap.has(result.url)) {
             const existing = uniqueResultsMap.get(result.url);
@@ -161,6 +166,10 @@ export async function POST(req: NextRequest) {
       }
       // Handle Extract API results (flat structure)
       else if (item.url) {
+        if (item.raw_content && item.raw_content.length > MAX_CONTENT_LENGTH) {
+          item.raw_content = item.raw_content.slice(0, MAX_CONTENT_LENGTH) + "\n\n...[Extracted content truncated at 20k characters for length]";
+        }
+
         if (uniqueResultsMap.has(item.url)) {
           const existing = uniqueResultsMap.get(item.url);
 
