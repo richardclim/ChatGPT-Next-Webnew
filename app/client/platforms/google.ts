@@ -316,8 +316,8 @@ export class GeminiProApi implements LLMApi {
                     functionCall: {
                       name,
                       args: argsStr ? JSON.parse(argsStr as string) : {},
-                      ...rest,
                     },
+                    ...rest,
                   };
                 }
               ),
@@ -358,11 +358,12 @@ export class GeminiProApi implements LLMApi {
             (text: string, runTools: ChatMessageTool[]) => {
               const chunkJson = JSON.parse(text);
 
-              const functionCall = chunkJson?.candidates
-                ?.at(0)
-                ?.content.parts.at(0)?.functionCall;
+              const partsArr = chunkJson?.candidates?.at(0)?.content?.parts || [];
+              const funcPart = partsArr.find((p: any) => p.functionCall);
+              const functionCall = funcPart?.functionCall;
               if (functionCall) {
-                const { name, args, ...rest } = functionCall;
+                const { name, args } = functionCall;
+                const { functionCall: _, ...rest } = funcPart;
                 runTools.push({
                   id: nanoid(),
                   type: "function",
@@ -402,11 +403,12 @@ export class GeminiProApi implements LLMApi {
             // console.log("parseSSE", text, runTools);
             const chunkJson = JSON.parse(text);
 
-            const functionCall = chunkJson?.candidates
-              ?.at(0)
-              ?.content.parts.at(0)?.functionCall;
+            const partsArr = chunkJson?.candidates?.at(0)?.content?.parts || [];
+            const funcPart = partsArr.find((p: any) => p.functionCall);
+            const functionCall = funcPart?.functionCall;
             if (functionCall) {
-              const { name, args, ...rest } = functionCall;
+              const { name, args } = functionCall;
+              const { functionCall: _, ...rest } = funcPart;
               runTools.push({
                 id: nanoid(),
                 type: "function",
