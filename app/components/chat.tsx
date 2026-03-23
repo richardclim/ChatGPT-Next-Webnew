@@ -1325,17 +1325,15 @@ function _Chat() {
   };
 
   const deleteMessage = (msgId?: string) => {
-    chatStore.updateTargetSession(
-      session,
-      (session) => {
-        const index = session.messages.findIndex((m) => m.id === msgId);
-        if (index >= 0 && session.lastArchivedContextId === msgId) {
-          // If we delete the last archived anchor, shift pointer backward
-          session.lastArchivedContextId = index > 0 ? session.messages[index - 1].id : undefined;
-        }
-        session.messages = session.messages.filter((m) => m.id !== msgId);
+    chatStore.updateTargetSession(session, (session) => {
+      const index = session.messages.findIndex((m) => m.id === msgId);
+      if (index >= 0 && session.lastArchivedContextId === msgId) {
+        // If we delete the last archived anchor, shift pointer backward
+        session.lastArchivedContextId =
+          index > 0 ? session.messages[index - 1].id : undefined;
       }
-    );
+      session.messages = session.messages.filter((m) => m.id !== msgId);
+    });
   };
 
   const onDelete = (msgId: string) => {
@@ -2165,7 +2163,6 @@ function _Chat() {
                             {/*@ts-ignore*/}
                             {message?.tools?.length > 0 && (
                               <div className={styles["chat-message-tools"]}>
-                                <ToolSources tools={message.tools || []} />
                                 {message?.tools?.map((tool) => {
                                   if (
                                     tool.function?.name === "tavily_search" ||
@@ -2218,6 +2215,11 @@ function _Chat() {
                                         fontFamily={fontFamily}
                                       />
                                     )}
+                                    {!isUser &&
+                                      message?.tools &&
+                                      message.tools.length > 0 && (
+                                        <ToolSources tools={message.tools} />
+                                      )}
                                     <Markdown
                                       key={
                                         message.streaming ? "loading" : "done"
