@@ -2,12 +2,33 @@ import React, { useState, useMemo } from "react";
 import styles from "./tool-sources.module.scss";
 import { ChatMessageTool } from "../store";
 
+function SearchIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M10.5 10.5L14 14"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 function ChevronIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}
-      width="1em"
-      height="1em"
+      width="2em"
+      height="2em"
       viewBox="0 0 14 14"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
@@ -29,8 +50,15 @@ interface SourceResult {
   content: string;
 }
 
+const INITIAL_SOURCE_LIMIT = 20;
+
+function stripWww(hostname: string): string {
+  return hostname.replace(/^www\./, "");
+}
+
 export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showAllSources, setShowAllSources] = useState(false);
   const [activeSnippet, setActiveSnippet] = useState<string | null>(null);
 
   const tavilyTools = tools.filter(
@@ -39,13 +67,23 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
       t.function?.name === "tavily_retrieve",
   );
 
-  const isSearching = tavilyTools.some((t) => !t.content && !t.isError);
+  const hasSearch = tavilyTools.some(
+    (t) => t.function?.name === "tavily_search",
+  );
+  const hasRetrieve = tavilyTools.some(
+    (t) => t.function?.name === "tavily_retrieve",
+  );
+  const isRetrieveOnly = hasRetrieve && !hasSearch;
+
+  const isSearching = tavilyTools.some(
+    (t) => t.function?.name === "tavily_search" && !t.content && !t.isError,
+  );
   const isRecalling = tavilyTools.some(
     (t) => t.function?.name === "tavily_retrieve" && !t.content && !t.isError,
   );
   const hasError = tavilyTools.some((t) => t.isError);
+  const isActive = isSearching || isRecalling;
 
-  // Serialize exactly what matters to avoid parent re-reference triggering re-renders
   const toolsDeps = JSON.stringify(
     tavilyTools.map((t) => ({
       args: t.function?.arguments,
@@ -55,45 +93,44 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
   );
 
   const { queries, uniqueSources } = useMemo(() => {
-    let queries: string[] = [];
-    let sources: SourceResult[] = [];
+    const queries: string[] = [];
+    const sources: SourceResult[] = [];
 
     tavilyTools.forEach((t) => {
-      // extract queries
       if (t.function?.arguments) {
         try {
           const args = JSON.parse(t.function.arguments);
           if (args.queries && Array.isArray(args.queries)) {
             queries.push(...args.queries);
-          } else if (args.turn_id) {
-            queries.push(`Turn ID: ${args.turn_id}`);
           }
-        } catch (e) {}
+        } catch (_e) {
+          /* malformed args */
+        }
       }
 
-      // extract sources
       if (t.content && !t.isError) {
         try {
           let contentData = JSON.parse(t.content);
           if (typeof contentData === "string") {
             try {
               contentData = JSON.parse(contentData);
-            } catch {}
+            } catch {
+              /* not double-encoded */
+            }
           }
 
-          // tavily_search returns an array of results
           if (Array.isArray(contentData)) {
-            // It could be the retrieve payload (nested historical tools), which is an array of tools
             if (contentData.length > 0 && contentData[0].function) {
-              // this is a retrieve payload (tool array)
-              contentData.forEach((archivedTool) => {
+              contentData.forEach((archivedTool: { content?: string }) => {
                 if (archivedTool.content) {
                   try {
                     const archivedData = JSON.parse(archivedTool.content);
                     if (Array.isArray(archivedData)) {
                       sources.push(...archivedData);
                     }
-                  } catch (e) {}
+                  } catch (_e) {
+                    /* malformed archived content */
+                  }
                 }
               });
             } else {
@@ -102,35 +139,31 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
           } else if (contentData && Array.isArray(contentData.results)) {
             sources.push(...contentData.results);
           }
-        } catch (e) {}
+        } catch (_e) {
+          /* malformed content */
+        }
       }
     });
 
-    // Group by URL to ensure we don't lose any extracted snippets
     const sourcesMap = new Map<string, SourceResult>();
-
     sources.forEach((s) => {
       if (!s || !s.url) return;
-
-      // Normalize URL for grouping
       let cleanUrl = s.url;
       try {
         const parsed = new URL(s.url);
-        parsed.hash = ""; // Remove anchors
+        parsed.hash = "";
         cleanUrl = parsed.toString();
-      } catch (e) {}
+      } catch (_e) {
+        /* invalid url */
+      }
 
       const existing = sourcesMap.get(cleanUrl);
-
       if (existing) {
-        // If we already have this URL but with a different snippet, safely merge the contents
-        // This is crucial because different queries might extract different parts of the same page
         if (
           s.content &&
           existing.content &&
           !existing.content.includes(s.content)
         ) {
-          // Combine snippets with an ellipsis separator
           existing.content = `${existing.content} ... ${s.content}`;
         } else if (s.content && !existing.content) {
           existing.content = s.content;
@@ -140,56 +173,90 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
       }
     });
 
-    const uniqueSources = Array.from(sourcesMap.values()).filter(
-      (s) => s.title && s.url,
-    );
-    const uniqueQueries = Array.from(new Set(queries));
-
-    return { queries: uniqueQueries, uniqueSources };
+    return {
+      queries: Array.from(new Set(queries)),
+      uniqueSources: Array.from(sourcesMap.values()).filter(
+        (s) => s.title && s.url,
+      ),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolsDeps]);
 
   if (tavilyTools.length === 0) return null;
 
-  const getLabel = () => {
+  const getLabel = (): string => {
     if (isRecalling) return "Recalling from memory...";
     if (isSearching) return "Searching...";
+    if (isRetrieveOnly) return "Recalled earlier sources";
     if (hasError) return "Partial results retrieved";
     if (uniqueSources.length > 0)
       return `Reviewed ${uniqueSources.length} sources`;
     return "Reviewed sources";
   };
 
-  const truncate = (text: string, max: number) => {
+  const truncate = (text: string, max: number): string => {
     if (!text) return "";
     return text.length > max ? text.slice(0, max) + "..." : text;
   };
 
+  // Retrieve-only: passive pill, no expand
+  if (isRetrieveOnly && !isActive) {
+    return (
+      <div className={styles["tool-sources"]}>
+        <div className={styles["sources-pill"]}>
+          <SearchIcon className={styles["search-icon"]} />
+          <span className={styles["pill-label"]}>{getLabel()}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles["tool-sources"]}>
       <div
-        className={styles["tool-sources-header"]}
-        onClick={() => setIsExpanded(!isExpanded)}
+        className={styles["sources-pill"]}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setIsExpanded((prev) => !prev);
+          }
+        }}
       >
-        <div className={styles["header-left"]}>
-          {hasError ? (
-            <span className={styles["status-icon"]}>⚠️</span>
-          ) : isSearching ? (
-            <div className={styles["status-spinner"]} />
-          ) : (
-            <span className={styles["status-icon"]}>✓</span>
-          )}
-          <span className={styles["tool-sources-label"]}>{getLabel()}</span>
-        </div>
-        <ChevronIcon
-          className={`${styles["chevron"]} ${
-            isExpanded ? styles["expanded"] : ""
+        <SearchIcon
+          className={`${styles["search-icon"]} ${
+            isActive ? styles["pulse"] : ""
           }`}
         />
+        <span
+          className={`${styles["pill-label"]} ${
+            isActive ? styles["shimmer"] : ""
+          }`}
+        >
+          {getLabel()}
+        </span>
+        {!isActive && (
+          <ChevronIcon
+            className={`${styles["chevron-icon"]} ${
+              isExpanded ? styles["chevron-expanded"] : ""
+            }`}
+          />
+        )}
       </div>
 
-      {isExpanded && (
-        <div className={styles["tool-sources-content"]}>
+      <div
+        className={`${styles["sources-content"]} ${
+          isExpanded ? styles["expanded"] : ""
+        }`}
+      >
+        <div className={styles["sources-content-inner"]}>
+          {hasRetrieve && (
+            <div className={styles["recall-note"]}>
+              Also recalled sources from earlier in conversation
+            </div>
+          )}
           {queries.length > 0 && (
             <div className={styles["queries-section"]}>
               <div className={styles["section-title"]}>Searches</div>
@@ -204,14 +271,19 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
           )}
 
           {uniqueSources.length > 0 && (
-            <div className={styles["sources-section"]}>
+            <div className={styles["links-section"]}>
               <div className={styles["section-title"]}>Sources</div>
               <div className={styles["sources-grid"]}>
-                {uniqueSources.map((source) => {
+                {(showAllSources
+                  ? uniqueSources
+                  : uniqueSources.slice(0, INITIAL_SOURCE_LIMIT)
+                ).map((source) => {
                   let hostname = "";
                   try {
-                    hostname = new URL(source.url).hostname;
-                  } catch (e) {}
+                    hostname = stripWww(new URL(source.url).hostname);
+                  } catch (_e) {
+                    /* invalid url */
+                  }
                   return (
                     <div key={source.url} className={styles["source-item"]}>
                       {hostname && (
@@ -228,6 +300,7 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                         <a
                           href={source.url}
                           target="_blank"
+                          rel="noopener noreferrer"
                           title={source.title}
                           className={styles["source-title"]}
                         >
@@ -238,9 +311,9 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                         </div>
                       </div>
                       {source.content && (
-                        <div className={styles["source-info-btn-container"]}>
+                        <div className={styles["snippet-btn-container"]}>
                           <div
-                            className={`${styles["source-info-btn"]} ${
+                            className={`${styles["snippet-btn"]} ${
                               activeSnippet === source.url
                                 ? styles["active"]
                                 : ""
@@ -248,7 +321,7 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                             onMouseEnter={() => setActiveSnippet(source.url)}
                             onMouseLeave={() => setActiveSnippet(null)}
                             onClick={(e) => {
-                              e.preventDefault();
+                              e.stopPropagation();
                               setActiveSnippet(
                                 activeSnippet === source.url
                                   ? null
@@ -258,7 +331,7 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                           >
                             i
                             {activeSnippet === source.url && (
-                              <div className={styles["source-tooltip"]}>
+                              <div className={styles["snippet-tooltip"]}>
                                 {truncate(source.content, 2000)}
                               </div>
                             )}
@@ -269,10 +342,27 @@ export function ToolSources({ tools }: { tools: ChatMessageTool[] }) {
                   );
                 })}
               </div>
+              {!showAllSources &&
+                uniqueSources.length > INITIAL_SOURCE_LIMIT && (
+                  <div
+                    className={styles["show-more"]}
+                    onClick={() => setShowAllSources(true)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setShowAllSources(true);
+                      }
+                    }}
+                  >
+                    +{uniqueSources.length - INITIAL_SOURCE_LIMIT} more
+                  </div>
+                )}
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
