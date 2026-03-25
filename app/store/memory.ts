@@ -256,15 +256,17 @@ export const useMemoryStore = createPersistStore(
           ? messages.findIndex((m) => m.id === lastArchivedContextId)
           : -1;
 
-        if (lastArchivedContextId && archiveIndex === -1) {
-          console.warn(
-            "[Memory] lastArchivedContextId not found in messages. Aborting extraction to prevent duplicate processing.",
-          );
-          return undefined;
+        let newMessages = messages;
+        if (lastArchivedContextId) {
+          if (archiveIndex !== -1) {
+            newMessages = messages.slice(archiveIndex + 1);
+          } else {
+            console.warn(
+              "[Memory] lastArchivedContextId not found in messages. Processing all available messages to recover state.",
+            );
+            // newMessages remains `messages` to recover state
+          }
         }
-
-        const newMessages =
-          archiveIndex >= 0 ? messages.slice(archiveIndex + 1) : messages;
 
         if (newMessages.length === 0) {
           console.log("[Memory] No new messages to extract");

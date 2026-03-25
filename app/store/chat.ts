@@ -642,12 +642,17 @@ export const useChatStore = createPersistStore(
 
         if (result) {
           get().updateTargetSession(session, (s) => {
-            applyExtractionResult(s, result);
+            const stillExists = s.messages.some((m) => m.id === result.lastMessageId);
+            if (stillExists) {
+              applyExtractionResult(s, result);
+              console.log(
+                "[Chat] Extraction complete, updated lastArchivedContextId:",
+                result.lastMessageId,
+              );
+            } else {
+              console.warn("[Chat] Extraction result discarded - anchor message no longer exists.");
+            }
           });
-          console.log(
-            "[Chat] Extraction complete, updated lastArchivedContextId:",
-            result.lastMessageId,
-          );
         }
       },
       async rehydrateFromDiskAndMerge() {
