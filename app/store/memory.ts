@@ -96,22 +96,22 @@ export function buildExtractionPrompt(
       2. **IGNORE:** Temporary states (hunger, mood, etc.), immediate needs, or generic greetings.
       3. **Conflict Resolution:** If new info contradicts the Existing Profile, trust the NEW information.
       4. **New Information:** If a fact is entirely new, add it to the profile. 
-      5. **Category:** The broad domain (e.g., "coding", "personal", "health").
-      6. **Attribute:** The specific variable name (e.g., "language", "city", "allergies").
-      7. **Value:** The factual value(s) as an array of strings. 
-      8. **Action:** Specify the operation:
+      5. **"category":** The broad domain (e.g., "coding", "personal", "health").
+      6. **"attribute":** The specific variable name (e.g., "language", "city", "allergies").
+      7. **"value":** The factual value(s) as an array of strings. 
+      8. **"action":** Specify the operation:
          - "add": to append new elements to an ongoing list (e.g., learned a new programming language).
          - "replace": to completely overwrite a singular fact (e.g., changed address, updated age).
          - "delete": to remove specific elements from a list (provide the elements in "value"), or to remove the entire fact completely (provide an empty array [] for "value").
 
-      PART 2: EPISODIC HISTORY SUMMARY (STRING)
+      PART 2: "episodic_summary" (STRING)
       1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval. 
       2. **Content:** Focus on the USER's goals, the problem discussed, the solutions proposed, and any specific entities or topics of interest.
       3. **Contextualization:** If the conversation references past topics or user history, explicitly mention that connection (e.g., "User referenced their previous project on X"). 
       4. **Temporal Grounding:** Use the current data to make relative dates absolute. (e.g., "tomorrow" will be converted to the absolute date based on the current date provided)
       5. **DO NOT** include keywords, tags, or keyword lists inside the episodic_summary. The summary must be pure narrative only.
 
-      PART 3: KEYWORDS (ARRAY OF STRINGS)
+      PART 3: "keywords" (ARRAY OF STRINGS)
       1. Extract high-value search terms, topics, technologies, and entities discussed in the conversation.
       2. These MUST be placed in the "keywords" array field, NOT inside the episodic_summary text.
       3. Always return at least a few keywords. Never return an empty array if the conversation has any substance.
@@ -321,6 +321,7 @@ export const useMemoryStore = createPersistStore(
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
+                max_tokens: 0, // Bypass chat-level token limits
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true, // Get reasoning quality without reasoning text in response
@@ -353,10 +354,11 @@ export const useMemoryStore = createPersistStore(
 
                     const {
                       profile_updates = {},
-                      episodic_summary = "",
+                      episodic_summary: expected_summary = "",
                       keywords: rawKeywords = [],
                       is_continuation = false,
-                    } = combinedResult;
+                    } = combinedResult as any;
+                    const episodic_summary = expected_summary || (combinedResult as any).episodic_history_summary || "";
                     const keywords = rawKeywords as string[];
 
                     // 1. Handle Profile Updates
@@ -371,12 +373,11 @@ export const useMemoryStore = createPersistStore(
                       );
 
                       for (const update of profile_updates) {
-                        const {
-                          category,
-                          attribute,
-                          value,
-                          action = "add",
-                        } = update;
+                        const category = update.category || update.Category;
+                        const attribute = update.attribute || update.Attribute;
+                        const value = update.value || update.Value;
+                        const action = String(update.action || update.Action || "add").toLowerCase();
+                        
                         if (!category || !attribute) continue;
 
                         if (!newProfile[category]) {
@@ -613,6 +614,7 @@ export const useMemoryStore = createPersistStore(
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
+                max_tokens: 0, // Bypass chat-level token limits
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
@@ -703,6 +705,7 @@ export const useMemoryStore = createPersistStore(
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
+                max_tokens: 0, // Bypass chat-level token limits
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
@@ -796,6 +799,7 @@ export const useMemoryStore = createPersistStore(
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
+                max_tokens: 0, // Bypass chat-level token limits
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,

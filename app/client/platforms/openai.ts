@@ -423,16 +423,9 @@ export class ChatGPTApi implements LLMApi {
                 modelConfig.reasoningEffort,
               ),
             }),
-          ...(options.config.responseJsonSchema
+          ...(options.config.response_format
             ? {
-                response_format: {
-                  type: "json_schema",
-                  json_schema: {
-                    name: "extraction",
-                    schema: options.config.responseJsonSchema,
-                    strict: false,
-                  },
-                },
+                response_format: options.config.response_format,
               }
             : {}),
         };
