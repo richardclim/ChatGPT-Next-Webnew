@@ -141,6 +141,8 @@ const DEFAULT_ACCESS_STATE = {
 
   // tavily
   tavilyApiKey: "",
+  activeTavilyKeyIndex: 0,
+  lastTavilyRotationMonth: "",
 
   // server config
   needCode: true,

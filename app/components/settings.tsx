@@ -544,6 +544,115 @@ function EditPromptModal(props: { id: string; onClose: () => void }) {
   ) : null;
 }
 
+function TavilyKeysModal(props: { onClose: () => void }) {
+  const accessStore = useAccessStore();
+  const raw = accessStore.tavilyApiKey;
+  const [keys, setKeys] = useState<string[]>(() =>
+    raw
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean),
+  );
+
+  const activeIndex = accessStore.activeTavilyKeyIndex ?? 0;
+
+  const save = () => {
+    const cleaned = keys.map((k) => k.trim()).filter(Boolean);
+    accessStore.update((access) => {
+      access.tavilyApiKey = cleaned.join(",");
+      if (activeIndex >= cleaned.length) {
+        access.activeTavilyKeyIndex = 0;
+      }
+    });
+    props.onClose();
+  };
+
+  const updateKey = (index: number, value: string) => {
+    setKeys((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
+  const removeKey = (index: number) => {
+    setKeys((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addKey = () => {
+    setKeys((prev) => [...prev, ""]);
+  };
+
+  return (
+    <div className="modal-mask">
+      <Modal
+        title="Tavily API Keys"
+        onClose={save}
+        actions={[
+          <IconButton
+            key="add"
+            icon={<AddIcon />}
+            bordered
+            text="Add Key"
+            onClick={addKey}
+          />,
+          <IconButton
+            key="save"
+            icon={<ConfirmIcon />}
+            bordered
+            text="Save"
+            type="primary"
+            onClick={save}
+          />,
+        ]}
+      >
+        <div className={styles["tavily-keys-modal"]}>
+          {keys.length === 0 ? (
+            <div className={styles["tavily-keys-empty"]}>
+              No API keys configured. Click &quot;Add Key&quot; to get started.
+            </div>
+          ) : (
+            keys.map((key, i) => (
+              <div key={i} className={styles["tavily-key-row"]}>
+                <span className={styles["tavily-key-index"]}>{i + 1}</span>
+                <span
+                  className={`${styles["tavily-key-active-dot"]} ${
+                    i === activeIndex && keys.filter((k) => k.trim()).length > 0
+                      ? styles["active"]
+                      : ""
+                  }`}
+                  title={i === activeIndex ? "Currently active key" : ""}
+                />
+                <div className={styles["tavily-key-input"]}>
+                  <PasswordInput
+                    aria-label={`Tavily API Key ${i + 1}`}
+                    value={key}
+                    type="text"
+                    placeholder="tvly-..."
+                    onChange={(e) => updateKey(i, e.currentTarget.value)}
+                  />
+                </div>
+                <div
+                  className={styles["tavily-key-delete"]}
+                  onClick={() => removeKey(i)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Delete key ${i + 1}`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") removeKey(i);
+                  }}
+                >
+                  <DeleteIcon />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 function UserPromptModal(props: { onClose?: () => void }) {
   const promptStore = usePromptStore();
   const userPrompts = promptStore.getUserPrompts();
@@ -1069,6 +1178,7 @@ export function Settings() {
   const customCount = promptStore.getUserPrompts().length ?? 0;
   const [shouldShowPromptModal, setShowPromptModal] = useState(false);
   const [shouldShowUserProfileModal, setShowUserProfileModal] = useState(false);
+  const [shouldShowTavilyKeysModal, setShowTavilyKeysModal] = useState(false);
 
   const showUsage = accessStore.isAuthorized();
   useEffect(() => {
@@ -2491,21 +2601,28 @@ export function Settings() {
             ></input>
           </ListItem>
           <ListItem
-            title="Tavily API Key"
-            subTitle="Your Tavily Search API Key"
+            title="Tavily API Keys"
+            subTitle={(() => {
+              const keyCount = accessStore.tavilyApiKey
+                .split(",")
+                .map((k) => k.trim())
+                .filter(Boolean).length;
+              if (keyCount === 0) return "No keys configured";
+              const activeIdx = (accessStore.activeTavilyKeyIndex ?? 0) + 1;
+              return `${keyCount} key${keyCount > 1 ? "s" : ""} configured${
+                keyCount > 1 ? ` (Key ${activeIdx} active)` : ""
+              }`;
+            })()}
           >
-            <PasswordInput
-              aria-label="Tavily API Key"
-              value={accessStore.tavilyApiKey}
-              type="text"
-              placeholder="tvly-..."
-              onChange={(e) => {
-                accessStore.update(
-                  (access) => (access.tavilyApiKey = e.currentTarget.value),
-                );
-              }}
+            <IconButton
+              icon={<EditIcon />}
+              text="Manage Keys"
+              onClick={() => setShowTavilyKeysModal(true)}
             />
           </ListItem>
+          {shouldShowTavilyKeysModal && (
+            <TavilyKeysModal onClose={() => setShowTavilyKeysModal(false)} />
+          )}
           <ListItem
             title="Tavily Search Type"
             subTitle="Choose between Basic, Advanced, or Extract mode"

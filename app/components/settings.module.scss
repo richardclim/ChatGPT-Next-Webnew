@@ -310,3 +310,62 @@
     justify-content: center;
   }
 }
+
+.tavily-keys-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 200px;
+
+  .tavily-key-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .tavily-key-index {
+      font-size: 12px;
+      font-weight: bold;
+      opacity: 0.5;
+      min-width: 20px;
+      text-align: center;
+    }
+
+    .tavily-key-active-dot {
+      width: 8px;
+      height: 8px;
+      min-width: 8px;
+      border-radius: 50%;
+      background-color: var(--gray);
+
+      &.active {
+        background-color: #22c55e;
+      }
+    }
+
+    .tavily-key-input {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .tavily-key-delete {
+      opacity: 0.4;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      padding: 4px;
+
+      &:hover {
+        opacity: 1;
+        color: var(--danger);
+      }
+    }
+  }
+
+  .tavily-keys-empty {
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.5;
+    padding: 20px;
+    border: 1px dashed var(--border-in-light);
+    border-radius: 8px;
+  }
+}

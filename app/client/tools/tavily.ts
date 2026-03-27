@@ -39,7 +39,7 @@ export const tavilyToolDeclaration = {
       zodToJsonSchema(tavilyArgsSchema as any, {
         $refStrategy: "none",
         target: "openApi3",
-      })
+      }),
     ) as any,
   },
 };
@@ -65,7 +65,7 @@ export function createTavilyHandler(config: TavilyHandlerConfig) {
         }),
       };
     }
-    
+
     searchCount++;
 
     const parsed = tavilyArgsSchema.safeParse(args);
@@ -81,6 +81,20 @@ export function createTavilyHandler(config: TavilyHandlerConfig) {
       };
     }
 
+    const accessStore = useAccessStore.getState();
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
+
+    let activeKeyIndex = accessStore.activeTavilyKeyIndex || 0;
+
+    if (accessStore.lastTavilyRotationMonth !== currentMonth) {
+      activeKeyIndex = 0;
+      accessStore.update((access) => {
+        access.activeTavilyKeyIndex = 0;
+        access.lastTavilyRotationMonth = currentMonth;
+      });
+    }
+
     const apiRes = await fetch("/api/tavily", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -89,27 +103,54 @@ export function createTavilyHandler(config: TavilyHandlerConfig) {
         type: config.tavilySearchType,
         maxResults: config.tavilyMaxResults,
         maxChunksPerSource: config.tavilyMaxChunksPerSource,
-        apiKey: useAccessStore.getState().tavilyApiKey,
+        apiKey: accessStore.tavilyApiKey,
+        activeKeyIndex: activeKeyIndex,
       }),
     });
 
     const data = await apiRes.json();
-    return { data: JSON.stringify(data.results || data) };
+
+    if (
+      data.updatedKeyIndex !== undefined &&
+      data.updatedKeyIndex !== activeKeyIndex
+    ) {
+      accessStore.update((access) => {
+        access.activeTavilyKeyIndex = data.updatedKeyIndex;
+      });
+    }
+
+    const result: Record<string, unknown> = {
+      results: data.results || [],
+    };
+    if (data.failedQueries?.length > 0) {
+      result.failedQueries = data.failedQueries;
+      result.error = data.error;
+    }
+
+    return { data: JSON.stringify(result) };
   };
 }
 
 // --- Retrieve Tool ---
 export const tavilyRetrieveSchema = z.object({
-  turn_id: z.string().describe("The ID of the interaction turn you want to retrieve the massive search payload for."),
+  turn_id: z
+    .string()
+    .describe(
+      "The ID of the interaction turn you want to retrieve the massive search payload for.",
+    ),
 });
 
 export const tavilyRetrieveDeclaration = {
   type: "function" as const,
   function: {
     name: "tavily_retrieve",
-    description: "Retrieves the full raw JSON text of a previous web search or extraction you performed in a past turn. Use the turn_id provided in your system logs.",
+    description:
+      "Retrieves the full raw JSON text of a previous web search or extraction you performed in a past turn. Use the turn_id provided in your system logs.",
     parameters: removeAdditionalProperties(
-      zodToJsonSchema(tavilyRetrieveSchema as any, { $refStrategy: "none", target: "openApi3" })
+      zodToJsonSchema(tavilyRetrieveSchema as any, {
+        $refStrategy: "none",
+        target: "openApi3",
+      }),
     ) as any,
   },
 };
@@ -124,10 +165,12 @@ export function createTavilyRetrieveHandler() {
     }
 
     const session = useChatStore.getState().currentSession();
-    const message = session.messages.find(m => m.id === parsed.data.turn_id);
-    
+    const message = session.messages.find((m) => m.id === parsed.data.turn_id);
+
     if (!message || !message.tools || message.tools.length === 0) {
-      return { data: JSON.stringify({ error: "No tool data found for that turn." }) };
+      return {
+        data: JSON.stringify({ error: "No tool data found for that turn." }),
+      };
     }
 
     return { data: JSON.stringify(message.tools) };

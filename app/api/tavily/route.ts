@@ -3,13 +3,31 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { queries, type, maxResults, maxChunksPerSource, apiKey } = body;
+    const {
+      queries,
+      type,
+      maxResults,
+      maxChunksPerSource,
+      apiKey,
+      activeKeyIndex = 0,
+    } = body;
 
     const tavilyApiKey = apiKey || process.env.TAVILY_API_KEY;
 
     if (!tavilyApiKey) {
       return NextResponse.json(
         { error: "Tavily API key is missing." },
+        { status: 401 },
+      );
+    }
+
+    const allKeys = tavilyApiKey
+      .split(",")
+      .map((k: string) => k.trim())
+      .filter(Boolean);
+    if (allKeys.length === 0) {
+      return NextResponse.json(
+        { error: "No valid Tavily API keys found." },
         { status: 401 },
       );
     }
@@ -41,25 +59,56 @@ export async function POST(req: NextRequest) {
     );
 
     let aggregatedResults: any[] = [];
+    const failedQueries: string[] = [];
     const promises: Promise<void>[] = [];
+
+    let sharedKeyIndex = activeKeyIndex < allKeys.length ? activeKeyIndex : 0;
+
+    const tavilyFetch = async (url: string, payload: any) => {
+      let attempts = 0;
+      let localIndex = sharedKeyIndex;
+
+      while (attempts < allKeys.length) {
+        const key = allKeys[localIndex];
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...payload, api_key: key }),
+        });
+
+        if (res.ok) {
+          sharedKeyIndex = localIndex; // update the shared index to the first successful key
+          return res;
+        }
+
+        const errText = await res.text();
+        console.error(
+          `Tavily API error with key at index ${localIndex}:`,
+          errText,
+        );
+
+        // If it's a 4xx error (Credit limit / Rate limit)
+        if (res.status >= 400 && res.status < 500) {
+          localIndex = (localIndex + 1) % allKeys.length;
+          attempts++;
+        } else {
+          break; // For 500s, usually an internal server error, not a rotation issue.
+        }
+      }
+      return null;
+    };
 
     // 1. Process URL queries with the Extract API
     if (urlQueries.length > 0) {
       promises.push(
         (async () => {
-          const response = await fetch("https://api.tavily.com/extract", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              api_key: tavilyApiKey,
-              urls: urlQueries,
-            }),
+          const response = await tavilyFetch("https://api.tavily.com/extract", {
+            urls: urlQueries,
           });
 
-          if (!response.ok) {
-            console.error("Tavily Extract API error:", await response.text());
+          if (!response) {
+            console.error("Tavily Extract API exhausted all keys or failed.");
+            failedQueries.push("extract");
             return;
           }
 
@@ -77,7 +126,6 @@ export async function POST(req: NextRequest) {
         promises.push(
           (async () => {
             const payload: Record<string, unknown> = {
-              api_key: tavilyApiKey,
               query: query,
               search_depth: searchDepth,
               include_raw_content: includeRawContent,
@@ -88,19 +136,16 @@ export async function POST(req: NextRequest) {
                   : undefined,
             };
 
-            const response = await fetch("https://api.tavily.com/search", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify(payload),
-            });
+            const response = await tavilyFetch(
+              "https://api.tavily.com/search",
+              payload,
+            );
 
-            if (!response.ok) {
+            if (!response) {
               console.error(
-                `Tavily API error for query "${query}":`,
-                await response.text(),
+                `Tavily API exhausted all keys or failed for query "${query}"`,
               );
+              failedQueries.push(query);
               return;
             }
 
@@ -126,8 +171,13 @@ export async function POST(req: NextRequest) {
         for (const result of item.results) {
           if (!result.url) continue;
 
-          if (result.raw_content && result.raw_content.length > MAX_CONTENT_LENGTH) {
-            result.raw_content = result.raw_content.slice(0, MAX_CONTENT_LENGTH) + "\n\n...[Extracted content truncated at 20k characters for length]";
+          if (
+            result.raw_content &&
+            result.raw_content.length > MAX_CONTENT_LENGTH
+          ) {
+            result.raw_content =
+              result.raw_content.slice(0, MAX_CONTENT_LENGTH) +
+              "\n\n...[Extracted content truncated at 20k characters for length]";
           }
 
           if (uniqueResultsMap.has(result.url)) {
@@ -140,14 +190,21 @@ export async function POST(req: NextRequest) {
             }
 
             // Concatenate novel snippets
-            if (result.content && existing.content && !existing.content.includes(result.content)) {
+            if (
+              result.content &&
+              existing.content &&
+              !existing.content.includes(result.content)
+            ) {
               existing.content += `\n...\n${result.content}`;
             } else if (result.content && !existing.content) {
               existing.content = result.content;
             }
 
             // Keep the highest score to reflect relevance
-            if (result.score && (!existing.score || result.score > existing.score)) {
+            if (
+              result.score &&
+              (!existing.score || result.score > existing.score)
+            ) {
               existing.score = result.score;
             }
 
@@ -155,7 +212,6 @@ export async function POST(req: NextRequest) {
             if (result.raw_content && !existing.raw_content) {
               existing.raw_content = result.raw_content;
             }
-
           } else {
             uniqueResultsMap.set(result.url, {
               ...result,
@@ -167,7 +223,9 @@ export async function POST(req: NextRequest) {
       // Handle Extract API results (flat structure)
       else if (item.url) {
         if (item.raw_content && item.raw_content.length > MAX_CONTENT_LENGTH) {
-          item.raw_content = item.raw_content.slice(0, MAX_CONTENT_LENGTH) + "\n\n...[Extracted content truncated at 20k characters for length]";
+          item.raw_content =
+            item.raw_content.slice(0, MAX_CONTENT_LENGTH) +
+            "\n\n...[Extracted content truncated at 20k characters for length]";
         }
 
         if (uniqueResultsMap.has(item.url)) {
@@ -192,7 +250,15 @@ export async function POST(req: NextRequest) {
 
     const finalResults = Array.from(uniqueResultsMap.values());
 
-    return NextResponse.json({ results: finalResults });
+    return NextResponse.json({
+      results: finalResults,
+      updatedKeyIndex: sharedKeyIndex,
+      ...(failedQueries.length > 0 && {
+        failedQueries,
+        error:
+          "Some queries failed because all Tavily API keys are exhausted or invalid. Please check your API key configuration.",
+      }),
+    });
   } catch (error: any) {
     console.error("Tavily Route Error:", error);
     return NextResponse.json(
