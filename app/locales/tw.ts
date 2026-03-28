@@ -1,9 +1,11 @@
 import { getClientConfig } from "../config/client";
 import { SubmitKey } from "../store/config";
 import { SAAS_CHAT_UTM_URL } from "@/app/constant";
+import type { PartialLocaleType } from "./index";
+
 const isApp = !!getClientConfig()?.isApp;
 
-const tw = {
+const tw: PartialLocaleType = {
   WIP: "此功能仍在開發中……",
   Error: {
     Unauthorized: isApp
@@ -551,15 +553,6 @@ const tw = {
     Time: "時間",
   },
 };
-
-type DeepPartial<T> = T extends object
-  ? {
-      [P in keyof T]?: DeepPartial<T[P]>;
-    }
-  : T;
-
-export type LocaleType = typeof tw;
-export type PartialLocaleType = DeepPartial<typeof tw>;
 
 export default tw;
 // Translated by @chunkiuuu, feel free the submit new pr if there are typo/incorrect translations :D
