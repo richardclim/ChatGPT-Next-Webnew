@@ -377,6 +377,7 @@ const CHAT_TAB_ID_KEY = "chat_tab_id";
 const CHAT_TAB_SESSION_KEY = "chat_current_session_id"; // Per-tab session persistence
 const CHAT_TAB_ID = (() => {
   try {
+    if (typeof sessionStorage === "undefined") throw new Error("SSR");
     const v =
       sessionStorage.getItem(CHAT_TAB_ID_KEY) ||
       crypto.randomUUID?.() ||
@@ -390,6 +391,7 @@ const CHAT_TAB_ID = (() => {
 
 // Helper to persist the current session ID for this tab
 function setTabCurrentSessionId(sessionId: string) {
+  if (typeof sessionStorage === "undefined") return;
   try {
     sessionStorage.setItem(CHAT_TAB_SESSION_KEY, sessionId);
   } catch (e) {
@@ -399,6 +401,7 @@ function setTabCurrentSessionId(sessionId: string) {
 
 // Helper to retrieve the persisted session ID for this tab
 function getTabCurrentSessionId(): string | null {
+  if (typeof sessionStorage === "undefined") return null;
   try {
     return sessionStorage.getItem(CHAT_TAB_SESSION_KEY);
   } catch {

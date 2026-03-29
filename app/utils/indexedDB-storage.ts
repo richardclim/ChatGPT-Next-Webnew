@@ -90,7 +90,7 @@ async function withPersistLock<T>(
 }
 
 // ---- Debounced write queue per key ------------------------------------------
-const pending: Record<string, { timer: number | null; value: string | null }> =
+const pending: Record<string, { timer: any; value: string | null }> =
   {};
 
 async function performSetItem(name: string, value: string): Promise<void> {
@@ -172,6 +172,7 @@ async function performSetItem(name: string, value: string): Promise<void> {
 
 class IndexedDBStorage implements StateStorage {
   public async getItem(name: string): Promise<string | null> {
+    if (typeof window === "undefined") return null;
     console.log(`[IndexedDBStorage] getItem called for: ${name}`);
     try {
       const value = (await get(name)) || localStorage.getItem(name);
@@ -186,6 +187,7 @@ class IndexedDBStorage implements StateStorage {
   }
 
   public async setItem(name: string, value: string): Promise<void> {
+    if (typeof window === "undefined") return;
     // debounce writes per key to reduce thrash during rapid updates
     if (!pending[name]) {
       pending[name] = { timer: null, value: null };
@@ -196,7 +198,7 @@ class IndexedDBStorage implements StateStorage {
     }
 
     await new Promise<void>((resolve) => {
-      pending[name].timer = window.setTimeout(async () => {
+      pending[name].timer = setTimeout(async () => {
         const v = pending[name].value!;
         pending[name].timer = null;
         pending[name].value = null;
@@ -210,6 +212,7 @@ class IndexedDBStorage implements StateStorage {
   }
 
   public async removeItem(name: string): Promise<void> {
+    if (typeof window === "undefined") return;
     try {
       await del(name);
     } catch (error) {
@@ -218,6 +221,7 @@ class IndexedDBStorage implements StateStorage {
   }
 
   public async clear(): Promise<void> {
+    if (typeof window === "undefined") return;
     try {
       await clear();
     } catch (error) {
@@ -232,6 +236,7 @@ export const indexedDBStorage = new IndexedDBStorage();
 export async function readPersistEnvelope(
   name: string,
 ): Promise<PersistEnvelope | null> {
+  if (typeof window === "undefined") return null;
   try {
     const raw = (await get(name)) || localStorage.getItem(name);
     return raw ? (JSON.parse(raw) as PersistEnvelope) : null;
@@ -246,6 +251,7 @@ export function attachStoragePingListener(
   name: string,
   onPing: (data: any) => void,
 ) {
+  if (typeof window === "undefined") return;
   window.addEventListener("storage", (e) => {
     if (e.key === `${name}:ping` && e.newValue) {
       try {
