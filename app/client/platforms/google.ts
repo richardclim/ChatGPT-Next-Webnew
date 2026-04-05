@@ -295,6 +295,8 @@ export class GeminiProApi implements LLMApi {
         if (modelConfig.enableTavily) {
           tools.push(tavilyToolDeclaration);
           funcs[TAVILY_TOOL_NAME] = createTavilyHandler(modelConfig);
+          tools.push(tavilyRetrieveDeclaration);
+          funcs[TAVILY_RETRIEVE_TOOL_NAME] = createTavilyRetrieveHandler();
         }
 
         const processToolMessage = (
@@ -309,18 +311,20 @@ export class GeminiProApi implements LLMApi {
             0,
             {
               role: "model",
-              parts: toolCallMessage.tool_calls.map(
-                (tool: ChatMessageTool) => {
-                  const { name, arguments: argsStr, ...rest } = tool?.function || {};
-                  return {
-                    functionCall: {
-                      name,
-                      args: argsStr ? JSON.parse(argsStr as string) : {},
-                    },
-                    ...rest,
-                  };
-                }
-              ),
+              parts: toolCallMessage.tool_calls.map((tool: ChatMessageTool) => {
+                const {
+                  name,
+                  arguments: argsStr,
+                  ...rest
+                } = tool?.function || {};
+                return {
+                  functionCall: {
+                    name,
+                    args: argsStr ? JSON.parse(argsStr as string) : {},
+                  },
+                  ...rest,
+                };
+              }),
             },
             // @ts-ignore
             ...toolCallResult.map((result) => ({
@@ -358,7 +362,8 @@ export class GeminiProApi implements LLMApi {
             (text: string, runTools: ChatMessageTool[]) => {
               const chunkJson = JSON.parse(text);
 
-              const partsArr = chunkJson?.candidates?.at(0)?.content?.parts || [];
+              const partsArr =
+                chunkJson?.candidates?.at(0)?.content?.parts || [];
               const funcPart = partsArr.find((p: any) => p.functionCall);
               const functionCall = funcPart?.functionCall;
               if (functionCall) {

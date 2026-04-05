@@ -876,18 +876,22 @@ export function ChatActions(props: {
         )}
         <ChatAction
           onClick={() => {
-            const enableMemory = !session.enableMemory;
+            const enableMemory = !session.mask.modelConfig.enableMemory;
             chatStore.updateTargetSession(session, (session) => {
-              session.enableMemory = enableMemory;
+              session.mask.modelConfig.enableMemory = enableMemory;
+              if (session.mask.syncGlobalConfig) {
+                config.update(
+                  (c) => (c.modelConfig.enableMemory = enableMemory),
+                );
+              }
             });
-            useMemoryStore.getState().setEnabled(enableMemory);
             showToast(
               enableMemory ? Locale.UserProfile.Enable : "Memory Disabled",
             );
           }}
           text={Locale.UserProfile.Title}
           icon={<BrainIcon />}
-          active={session.enableMemory}
+          active={session.mask.modelConfig.enableMemory}
         />
         <ChatAction
           onClick={() => {
@@ -1480,12 +1484,12 @@ function _Chat() {
     return context
       .concat(session.messages as RenderMessage[])
       .concat(
-        isLoading
+        isLoading && !session.messages.some((m) => m.streaming)
           ? [
               {
                 ...createMessage({
                   role: "assistant",
-                  content: "……",
+                  content: "",
                 }),
                 preview: true,
               },

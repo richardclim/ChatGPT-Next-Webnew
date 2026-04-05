@@ -50,13 +50,19 @@ export async function POST(req: NextRequest) {
       includeRawContent = true;
     }
 
-    // Split queries into URLs and text searches
-    const urlQueries = queries.filter(
-      (q: string) => q.startsWith("http://") || q.startsWith("https://"),
-    );
-    const textQueries = queries.filter(
-      (q: string) => !(q.startsWith("http://") || q.startsWith("https://")),
-    );
+    // Split queries into URLs and text searches robustly (handle whitespace/embedded quotes from LLMs)
+    const isUrl = (q: string) => {
+      const clean = q.trim().replace(/^['"]+|['"]+$/g, "");
+      return clean.startsWith("http://") || clean.startsWith("https://");
+    };
+
+    const urlQueries = queries
+      .filter((q: string) => isUrl(q))
+      .map((q: string) => q.trim().replace(/^['"]+|['"]+$/g, ""));
+
+    const textQueries = queries
+      .filter((q: string) => !isUrl(q))
+      .map((q: string) => q.trim().replace(/^['"]+|['"]+$/g, ""));
 
     let aggregatedResults: any[] = [];
     const failedQueries: string[] = [];

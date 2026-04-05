@@ -156,7 +156,6 @@ function createEmptySession(): ChatSession {
     pinned: false,
     pinnedAt: null,
 
-    enableMemory: true,
     lastArchivedContextId: undefined,
     lastExtractionTime: undefined,
     lastEpisodicSummary: undefined,
@@ -620,7 +619,7 @@ export const useChatStore = createPersistStore(
 
     const methods = {
       async triggerExtractionForSession(session: ChatSession) {
-        if (!session.enableMemory || session.messages.length === 0) return;
+        if (!session.mask.modelConfig.enableMemory || session.messages.length === 0) return;
 
         // Debounce: skip if extraction ran recently for this session
         const now = Date.now();
@@ -857,7 +856,7 @@ export const useChatStore = createPersistStore(
       selectSession(index: number) {
         // Trigger extraction on the previous session before switching
         const previousSession = get().currentSession();
-        if (previousSession && previousSession.messages.length > 0) {
+        if (previousSession && previousSession.mask.modelConfig.enableMemory && previousSession.messages.length > 0) {
           get().triggerExtractionForSession(previousSession);
         }
 
@@ -900,7 +899,7 @@ export const useChatStore = createPersistStore(
       newSession(mask?: Mask) {
         // Trigger extraction for current session before creating new one
         const currentSession = get().currentSession();
-        if (currentSession && currentSession.messages.length > 0) {
+        if (currentSession && currentSession.mask.modelConfig.enableMemory && currentSession.messages.length > 0) {
           get().triggerExtractionForSession(currentSession);
         }
 
@@ -1037,7 +1036,7 @@ export const useChatStore = createPersistStore(
 
         // Check if we should trigger extraction (every 8 new messages)
         const session = get().sessions.find((s) => s.id === targetSession.id);
-        if (session && session.enableMemory) {
+        if (session && session.mask.modelConfig.enableMemory) {
           const archiveIndex = session.lastArchivedContextId
             ? session.messages.findIndex(
                 (m) => m.id === session.lastArchivedContextId,
@@ -1101,52 +1100,6 @@ export const useChatStore = createPersistStore(
             isPasted,
           });
 
-          // Memory Logic: Retrieve and attach memory context if enabled (and not pasted/MCP)
-          const memoryStore = useMemoryStore.getState();
-          if (
-            !isMcpResponse &&
-            !isPasted &&
-            memoryStore.enabled &&
-            session.enableMemory &&
-            content
-          ) {
-            try {
-              // Collect memoryContext from previous messages to avoid duplicate retrieval
-              const previousMemoryContexts = session.messages
-                .filter((m) => m.role === "user" && m.memoryContext)
-                .map((m) => m.memoryContext as string);
-
-              // Last few messages for query expander reference resolution (pronouns like "it", "that")
-              const recentMessages = session.messages.slice(-4);
-
-              const [relevant, episodic] = await Promise.all([
-                memoryStore.findRelevant(content, previousMemoryContexts),
-                memoryStore.retrieveEpisodicMemory(
-                  content,
-                  5,
-                  recentMessages,
-                  previousMemoryContexts,
-                ),
-              ]);
-              const episodicStr =
-                episodic && episodic.length > 0 ? episodic.join("\n\n") : "";
-
-              const memoryContext = [
-                relevant ? `User Profile:\n${relevant}` : "",
-                episodicStr ? `Recalled Memory:\n${episodicStr}` : "",
-              ]
-                .filter(Boolean)
-                .join("\n\n");
-
-              if (memoryContext) {
-                userMessage.memoryContext = memoryContext;
-                console.log("[Chat] Attached memory context to user message");
-              }
-            } catch (e) {
-              console.error("[Chat] Failed to retrieve memory", e);
-            }
-          }
-
           // If message is pasted, add it to messages and return early.
           if (userMessage.isPasted) {
             get().updateTargetSession(session, (session) => {
@@ -1166,17 +1119,27 @@ export const useChatStore = createPersistStore(
             model: modelConfig.model,
           });
 
-          // get recent messages
-          const recentMessages = await get().getMessagesWithMemory();
-          // Inject memoryContext into the current user message for the API call
-          const outgoingUserMessage =
-            userMessage.memoryContext && typeof userMessage.content === "string"
-              ? {
-                  ...userMessage,
-                  content: `Context:\n${userMessage.memoryContext}\n\nQuestion:\n${userMessage.content}`,
-                }
-              : userMessage;
-          const sendMessages = recentMessages.concat(outgoingUserMessage);
+          const memoryStore = useMemoryStore.getState();
+          const shouldFetchMemory =
+            !isMcpResponse &&
+            !isPasted &&
+            session.mask.modelConfig.enableMemory &&
+            content;
+
+          if (shouldFetchMemory) {
+            userMessage.memoryContext = "Looking for memory context...";
+          }
+
+          // Pre-fetch references for memory expansion before we append the new messages
+          let previousMemoryContexts: string[] = [];
+          let recentMessagesForExpansion: ChatMessage[] = [];
+          if (shouldFetchMemory) {
+            previousMemoryContexts = session.messages
+              .filter((m) => m.role === "user" && m.memoryContext)
+              .map((m) => m.memoryContext as string);
+            recentMessagesForExpansion = session.messages.slice(-4);
+          }
+
           const messageIndex = session.messages.length + 1;
           const isNewChat = session.messages.length === 0;
 
@@ -1190,7 +1153,59 @@ export const useChatStore = createPersistStore(
               savedUserMessage,
               botMessage,
             ]);
+            session.lastUpdate = Date.now();
           });
+
+          // Memory Logic: Retrieve and attach memory context if enabled (and not pasted/MCP)
+          if (shouldFetchMemory) {
+            try {
+              const [relevant, episodic] = await Promise.all([
+                memoryStore.findRelevant(content as string, previousMemoryContexts),
+                memoryStore.retrieveEpisodicMemory(
+                  content as string,
+                  undefined,
+                  recentMessagesForExpansion,
+                  previousMemoryContexts,
+                ),
+              ]);
+              const episodicStr =
+                episodic && episodic.length > 0 ? episodic.join("\n\n") : "";
+
+              const finalMemoryContext = [
+                relevant ? `User Profile:\n${relevant}` : "",
+                episodicStr ? `Recalled Memory:\n${episodicStr}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n");
+
+              userMessage.memoryContext = finalMemoryContext || undefined;
+
+              // Updates the store so the memory bubble updates to final content, or disappears if none
+              get().updateTargetSession(session, (session) => {
+                const m = session.messages.find((m) => m.id === userMessage.id);
+                if (m) m.memoryContext = userMessage.memoryContext;
+              });
+
+              if (finalMemoryContext) {
+                console.log("[Chat] Attached memory context to user message");
+              }
+            } catch (e) {
+              console.error("[Chat] Failed to retrieve memory", e);
+              userMessage.memoryContext = undefined;
+              get().updateTargetSession(session, (session) => {
+                const m = session.messages.find((m) => m.id === userMessage.id);
+                if (m) m.memoryContext = undefined;
+              });
+            }
+          }
+
+          // get recent messages
+          const recentMessages = await get().getMessagesWithMemory();
+          
+          // By calling getMessagesWithMemory AFTER updating memoryContext in store,
+          // userMessage is perfectly injected with its context if it exists.
+          // Since botMessage is also in recentMessages (but is blank and streaming), we filter it out.
+          const sendMessages = recentMessages.filter((m) => m.id !== botMessage.id);
 
           const api: ClientApi = getClientApi(modelConfig.providerName);
 
@@ -1813,7 +1828,7 @@ export const useChatStore = createPersistStore(
   },
   {
     name: StoreKey.Chat,
-    version: 3.8,
+    version: 3.9,
     partialize: (state) => partializeChatState(state) as any,
 
     merge: (persisted: any, current: any) => {
@@ -1951,7 +1966,6 @@ export const useChatStore = createPersistStore(
 
       if (version < 3.5) {
         newState.sessions.forEach((s) => {
-          s.enableMemory = s.enableMemory ?? true;
           s.lastArchivedContextId = s.lastArchivedContextId ?? undefined;
           s.lastExtractionTime = s.lastExtractionTime ?? undefined;
         });

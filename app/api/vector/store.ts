@@ -14,26 +14,15 @@ export interface MemoryChunk {
   /** All chat sessions whose content contributed to this record. */
   sessionIds: string[];
   createdAt: number;
+  /** Timestamp of the very first version of this entry (preserved across updates). */
+  originalCreatedAt?: number;
   keywords?: string[]; // Optional, as it's now embedded in content
   // vector is generated server-side if not provided
   vector?: number[];
   replaceEntryId?: string; // If set, directly replace this entry (skip similarity routing)
 }
 
-/**
- * Normalise the session identifier(s) from a raw LanceDB row.
- * Old rows may have a plain `sessionId` string; new rows have `sessionIds` array.
- * Returns a deduplicated string array in all cases.
- */
-function normaliseSessionIds(row: Record<string, unknown>): string[] {
-  if (Array.isArray(row.sessionIds) && row.sessionIds.length > 0) {
-    return [...new Set(row.sessionIds as string[])];
-  }
-  // Legacy: single sessionId string, or fall back to id which was set = sessionId historically
-  const legacy =
-    (row.sessionId as string | undefined) || (row.id as string | undefined);
-  return legacy ? [legacy] : [];
-}
+
 
 let dbInstance: lancedb.Connection | null = null;
 let modelInstance: any = null;
@@ -97,6 +86,7 @@ export async function upsertMemory(
       data.push({
         ...chunkData,
         sessionIds: chunk.sessionIds,
+        originalCreatedAt: chunk.originalCreatedAt || chunk.createdAt,
         vector,
         keywords: chunk.keywords || [],
         id: newId,
@@ -141,8 +131,9 @@ export async function upsertMemory(
 
     // Direct replace path: skip similarity routing entirely
     if (replaceEntryId) {
-      // Fetch existing record to carry forward its sessionIds
+      // Fetch existing record to carry forward its sessionIds and originalCreatedAt
       let priorSessionIds: string[] = [];
+      let priorOriginalCreatedAt: number | undefined;
       try {
         const prior = await table
           .query()
@@ -150,9 +141,10 @@ export async function upsertMemory(
           .limit(1)
           .toArray();
         if (prior.length > 0) {
-          priorSessionIds = normaliseSessionIds(
-            prior[0] as Record<string, unknown>,
-          );
+          priorSessionIds = (prior[0].sessionIds as string[]) || [];
+          priorOriginalCreatedAt =
+            (prior[0].originalCreatedAt as number) ||
+            (prior[0].createdAt as number);
         }
         await table.delete(`id = '${replaceEntryId}'`);
         console.log(
@@ -173,6 +165,10 @@ export async function upsertMemory(
         {
           ...chunkData,
           sessionIds: mergedSessionIds,
+          originalCreatedAt:
+            priorOriginalCreatedAt ||
+            chunk.originalCreatedAt ||
+            chunk.createdAt,
           vector: newVector,
           keywords: chunk.keywords || [],
           id: newId,
@@ -220,6 +216,7 @@ export async function upsertMemory(
         {
           ...chunkData,
           sessionIds: chunk.sessionIds,
+          originalCreatedAt: chunk.originalCreatedAt || chunk.createdAt,
           vector: newVector,
           keywords: chunk.keywords || [],
           id: newId,
@@ -247,6 +244,7 @@ export async function upsertMemory(
             {
               ...chunkData,
               sessionIds: chunk.sessionIds,
+              originalCreatedAt: chunk.originalCreatedAt || chunk.createdAt,
               vector: newVector,
               keywords: chunk.keywords || [],
               id: newId,
@@ -255,9 +253,7 @@ export async function upsertMemory(
           entryId = newId;
         } else if (decision.action === "MERGE" && decision.mergedContent) {
           // Union session IDs from both records so we preserve full lineage
-          const existingSessionIds = normaliseSessionIds(
-            existing as Record<string, unknown>,
-          );
+          const existingSessionIds = (existing.sessionIds as string[]) || [];
           const mergedSessionIds = [
             ...new Set([...existingSessionIds, ...chunk.sessionIds]),
           ];
@@ -268,12 +264,16 @@ export async function upsertMemory(
           const mergedKeywords = [
             ...new Set([...existingKeywords, ...newKeywords]),
           ];
+          const existingOriginal =
+            (existing.originalCreatedAt as number) ||
+            (existing.createdAt as number);
           await table.add([
             {
               id: existing.id,
               content: decision.mergedContent,
               sessionIds: mergedSessionIds,
               createdAt: Date.now(),
+              originalCreatedAt: existingOriginal,
               keywords: mergedKeywords,
               vector: mergedVector,
             },
@@ -297,6 +297,7 @@ export async function upsertMemory(
           {
             ...chunkData,
             sessionIds: chunk.sessionIds,
+            originalCreatedAt: chunk.originalCreatedAt || chunk.createdAt,
             vector: newVector,
             keywords: chunk.keywords || [],
             id: fallbackId,
@@ -312,6 +313,7 @@ export async function upsertMemory(
         {
           ...chunkData,
           sessionIds: chunk.sessionIds,
+          originalCreatedAt: chunk.originalCreatedAt || chunk.createdAt,
           vector: newVector,
           keywords: chunk.keywords || [],
           id: fallbackId,
@@ -324,7 +326,23 @@ export async function upsertMemory(
   return entryId;
 }
 
-export async function searchMemory(query: string, limit: number = 30) {
+/**
+ * Strip the embedded `Keywords: ...` line from stored content.
+ * Keywords are baked into `content` to boost search/embedding relevance
+ * but should not be surfaced to LLMs or the UI.
+ */
+export function stripKeywordsLine(content: string): string {
+  return content.replace(/\n\s*Keywords:.*$/i, "").trim();
+}
+
+/** Cosine similarity threshold — results below this are considered noise. */
+const VECTOR_SIM_THRESHOLD = 0.5;
+/** Maximum vector search candidates before filtering. */
+const VECTOR_LIMIT = 10;
+/** Maximum FTS candidates before filtering. */
+const FTS_LIMIT = 10;
+
+export async function searchMemory(query: string) {
   const db = await getDb();
   const tableNames = await db.tableNames();
   if (!tableNames.includes(TABLE_NAME)) return [];
@@ -340,47 +358,70 @@ export async function searchMemory(query: string, limit: number = 30) {
     return [];
   }
 
+  // --- 1. Vector search (semantic similarity) ---
+  let vectorResults: Record<string, unknown>[] = [];
   try {
-    // TRUE HYBRID SEARCH: Combines Vector (ANN) + Full-Text Search (FTS) with RRF reranking
-    // This approach uses LanceDB's .fullTextSearch() chained on a vector query,
-    // then reranks results using Reciprocal Rank Fusion (RRF) to merge both signals.
-    console.log(
-      "[Vector Store] Attempting True Hybrid Search (Vector + FTS with RRF)...",
-    );
-
-    const reranker = await lancedb.rerankers.RRFReranker.create(60);
-
-    const results = await table
+    const raw = await table
       .vectorSearch(queryVector)
       .distanceType("cosine")
-      .fullTextSearch(query)
-      .rerank(reranker)
-      .limit(limit)
+      .limit(VECTOR_LIMIT)
       .toArray();
 
+    // _distance is cosine distance (0 = identical). Convert to similarity and filter.
+    vectorResults = raw.filter(
+      (r) => 1 - ((r._distance as number) || 0) >= VECTOR_SIM_THRESHOLD,
+    );
     console.log(
-      `[Vector Store] True Hybrid Search found ${results.length} results.`,
+      `[Vector Store] Vector search: ${raw.length} raw → ${vectorResults.length} after cosine ≥ ${VECTOR_SIM_THRESHOLD}`,
     );
-    return results;
-  } catch (hybridError) {
-    console.warn(
-      "[Vector Store] Hybrid search failed (FTS index may be missing). Falling back to Vector-only search.",
-      hybridError,
-    );
+  } catch (e) {
+    console.error("[Vector Store] Vector search failed", e);
+  }
 
-    try {
-      const results = await table
-        .vectorSearch(queryVector)
-        .distanceType("cosine")
-        .limit(limit)
-        .toArray();
-      console.log(
-        `[Vector Store] Fallback Vector-only search found ${results.length} results.`,
-      );
-      return results;
-    } catch (vecError) {
-      console.error("[Vector Store] Vector search also failed", vecError);
-      return [];
+  // --- 2. Full-text search (keyword matching) ---
+  let ftsResults: Record<string, unknown>[] = [];
+  try {
+    const raw = await table.search(query, "fts").limit(FTS_LIMIT).toArray();
+
+    // Keep only results with a positive BM25 score (at least one keyword matched).
+    ftsResults = raw.filter((r) => ((r._score as number) ?? 0) > 0);
+    console.log(
+      `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after BM25 > 0`,
+    );
+  } catch (ftsError) {
+    // FTS index may not exist yet — this is non-fatal.
+    console.warn(
+      "[Vector Store] FTS unavailable (index may be missing), skipping.",
+      ftsError,
+    );
+  }
+
+  // --- 3. Union + deduplicate by id ---
+  const seen = new Set<string>();
+  const merged: Record<string, unknown>[] = [];
+
+  for (const r of vectorResults) {
+    const id = r.id as string;
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(r);
     }
   }
+  for (const r of ftsResults) {
+    const id = r.id as string;
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(r);
+    }
+  }
+
+  console.log(
+    `[Vector Store] Merged: ${merged.length} unique candidates (vector: ${vectorResults.length}, fts: ${ftsResults.length})`,
+  );
+
+  // Strip the raw embedding vector and clean keywords from content.
+  return merged.map(({ vector, ...rest }) => ({
+    ...rest,
+    content: stripKeywordsLine(rest.content as string),
+  }));
 }

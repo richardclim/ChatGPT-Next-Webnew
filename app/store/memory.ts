@@ -61,10 +61,48 @@ export const memorySchema = z
   })
   .strict();
 
-const rerankSchema = z.array(z.number().int());
+const rerankSchema = z
+  .object({
+    indices: z.array(z.number().int()),
+  })
+  .strict();
+
+const decompositionSchema = z
+  .object({
+    queries: z.array(z.string()).max(5).describe("List of standalone search queries extracted from the user prompt."),
+  })
+  .strict();
 
 const memoryJsonSchemaCache = zodToJsonSchema(memorySchema as any) as any;
 const rerankJsonSchemaCache = zodToJsonSchema(rerankSchema as any) as any;
+const decompositionJsonSchemaCache = zodToJsonSchema(decompositionSchema as any) as any;
+
+/** Format a single episodic memory candidate with date context for LLM injection. */
+function formatEpisodicEntry(candidate: Record<string, unknown>): string {
+  const content = candidate.content as string;
+  if (!content) return "";
+
+  const createdAt = candidate.createdAt as number | undefined;
+  const originalCreatedAt = candidate.originalCreatedAt as number | undefined;
+
+  const fmtDate = (ts: number) =>
+    new Date(ts).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
+  let dateLine = "";
+  if (originalCreatedAt && createdAt && originalCreatedAt !== createdAt) {
+    dateLine = `[Originally: ${fmtDate(
+      originalCreatedAt,
+    )} | Last updated: ${fmtDate(createdAt)}]\n`;
+  } else if (createdAt) {
+    dateLine = `[Date: ${fmtDate(createdAt)}]\n`;
+  }
+
+  return `${dateLine}${content}`;
+}
 
 export interface ExtractionResult {
   lastMessageId: string;
@@ -153,6 +191,7 @@ export function buildUpsertChunk(
     content: enrichedContent,
     keywords,
     createdAt,
+    originalCreatedAt: createdAt,
     ...(isContinuation && lastEpisodicEntryId
       ? { replaceEntryId: lastEpisodicEntryId }
       : {}),
@@ -165,12 +204,10 @@ export type MemoryConfig = Partial<ModelConfig> & {
 };
 
 export interface MemoryStore {
-  enabled: boolean;
   enableContextInjectionDisplay: boolean;
   content: UserProfile;
   memoryModelConfig: MemoryConfig;
 
-  setEnabled: (enabled: boolean) => void;
   setEnableContextInjectionDisplay: (enabled: boolean) => void;
   updateContent: (content: UserProfile) => void;
   updateMemoryModelConfig: (updater: (config: MemoryConfig) => void) => void;
@@ -203,7 +240,6 @@ interface UserProfile {
 
 export const useMemoryStore = createPersistStore(
   {
-    enabled: true,
     enableContextInjectionDisplay: false,
     content: {} as UserProfile,
     memoryModelConfig: {
@@ -222,10 +258,6 @@ export const useMemoryStore = createPersistStore(
     }
 
     const methods = {
-      setEnabled(enabled: boolean) {
-        set(() => ({ enabled }));
-      },
-
       setEnableContextInjectionDisplay(enabled: boolean) {
         set(() => ({ enableContextInjectionDisplay: enabled }));
       },
@@ -249,7 +281,7 @@ export const useMemoryStore = createPersistStore(
         previousSummary?: string,
         lastEpisodicEntryId?: string,
       ): Promise<ExtractionResult | undefined> {
-        if (!get().enabled || messages.length === 0) return undefined;
+        if (messages.length === 0) return undefined;
 
         // Filter to only process messages after the last archived one
         const archiveIndex = lastArchivedContextId
@@ -358,7 +390,10 @@ export const useMemoryStore = createPersistStore(
                       keywords: rawKeywords = [],
                       is_continuation = false,
                     } = combinedResult as any;
-                    const episodic_summary = expected_summary || (combinedResult as any).episodic_history_summary || "";
+                    const episodic_summary =
+                      expected_summary ||
+                      (combinedResult as any).episodic_history_summary ||
+                      "";
                     const keywords = rawKeywords as string[];
 
                     // 1. Handle Profile Updates
@@ -376,8 +411,10 @@ export const useMemoryStore = createPersistStore(
                         const category = update.category || update.Category;
                         const attribute = update.attribute || update.Attribute;
                         const value = update.value || update.Value;
-                        const action = String(update.action || update.Action || "add").toLowerCase();
-                        
+                        const action = String(
+                          update.action || update.Action || "add",
+                        ).toLowerCase();
+
                         if (!category || !attribute) continue;
 
                         if (!newProfile[category]) {
@@ -402,7 +439,7 @@ export const useMemoryStore = createPersistStore(
                               newProfile[category][attribute] = filtered;
                             }
                           } else {
-                            // Either 'value' is empty [] or 'existingVal' is a scalar/undefined. 
+                            // Either 'value' is empty [] or 'existingVal' is a scalar/undefined.
                             // Delete the entire attribute completely.
                             delete newProfile[category][attribute];
                           }
@@ -560,12 +597,10 @@ export const useMemoryStore = createPersistStore(
 
       async retrieveEpisodicMemory(
         query: string,
-        limit: number = 5,
+        limit: number = 20,
         recentHistory: ChatMessage[] = [],
         previousMemoryContexts: string[] = [],
       ): Promise<string[]> {
-        if (!get().enabled) return [];
-
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
         const today = new Date().toLocaleString();
@@ -592,18 +627,19 @@ export const useMemoryStore = createPersistStore(
             USER QUERY (this is the SOLE focus of the search):
             "${query}"
 
-            Task: Convert the USER QUERY into a specific, standalone search query for a Vector Database.
-            1. The search query must be about the USER QUERY topic ONLY. Do NOT include topics from the Reference Context unless the User Query explicitly refers to them.
-            2. Remove conversational filler.
-            3. If the query implies a specific time (e.g., "yesterday"), convert to absolute date.
-            4. Extract key entities and topics from the USER QUERY.
-            5. Include specific keywords from the USER QUERY.
-            6. RESOLVE REFERENCES: If the User Query contains pronouns like "it", "that", "this", or "the error", replace them with the specific entity from the Reference Context. If the User Query is already specific, IGNORE the Reference Context entirely.
+            Task: Decompose the USER QUERY into standalone search queries for a Vector Database.
+            1. ONLY split the query if it contains genuinely distinct topics. Break complex questions into 1 to 5 separate sub-queries. Do NOT artificially over-divide cohesive concepts.
+            2. The search queries must be about the USER QUERY topics ONLY. Do NOT include topics from the Reference Context unless the User Query explicitly refers to them.
+            3. Remove conversational filler.
+            4. If the query implies a specific time, convert to an absolute date.
+            5. Extract key entities and preserve technical keywords exactly as written.
+            6. RESOLVE REFERENCES: Replace pronouns like "it" or "that" with the specific entity from the Reference Context.
             
-            Return ONLY the optimized search string. No quotes.
+            Return ONLY a valid JSON object in the following format:
+            {"queries": ["query 1", "query 2"]}
         `;
 
-        let optimizedQuery = query;
+        let optimizedQueries: string[] = [query];
 
         try {
           await new Promise((resolve) => {
@@ -618,13 +654,41 @@ export const useMemoryStore = createPersistStore(
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
+                responseMimeType: geminiJsonMode ? "application/json" : undefined,
+                responseJsonSchema: geminiJsonMode ? decompositionJsonSchemaCache : undefined,
+                response_format: openAIJsonMode
+                  ? {
+                      type: "json_schema",
+                      json_schema: {
+                        name: "memory_decomposition",
+                        schema: decompositionJsonSchemaCache,
+                        strict: true,
+                      },
+                    }
+                  : undefined,
               },
               onFinish(message) {
-                if (message && message.length > 0) {
-                  optimizedQuery = message.trim();
-                  console.log(
-                    `[Memory] Query Expanded: "${query}" -> "${optimizedQuery}"`,
-                  );
+                try {
+                  const extracted = extractFirstJsonObject(message) as { queries?: string[] } | null;
+                  if (extracted && Array.isArray(extracted.queries) && extracted.queries.length > 0) {
+                    // Filter out any non-string or empty queries
+                    const validQueries = extracted.queries.filter(q => typeof q === 'string' && q.trim().length > 0);
+                    if (validQueries.length > 0) {
+                      optimizedQueries = validQueries.slice(0, 5); // cap at 5 just in case
+                      console.log(
+                        `[Memory] Query Expanded & Decomposed: "${query}" ->`,
+                        optimizedQueries
+                      );
+                    }
+                  } else {
+                    // Fallback to treating the entire message as a single query string if JSON parsing fails
+                    if (message && message.trim().length > 0 && !message.trim().startsWith("{")) {
+                      optimizedQueries = [message.trim()];
+                      console.log(`[Memory] Query Expanded: "${query}" -> "${optimizedQueries[0]}"`);
+                    }
+                  }
+                } catch (err) {
+                  console.warn("[Memory] Failed to parse decomposition output", err);
                 }
                 resolve(null);
               },
@@ -638,10 +702,10 @@ export const useMemoryStore = createPersistStore(
         }
 
         try {
-          // 1. Vector/Hybrid Search
+          // 1. Vector + FTS search (pre-filtered server-side by cosine and BM25 thresholds)
           const res = await fetch("/api/vector/search", {
             method: "POST",
-            body: JSON.stringify({ query: optimizedQuery, limit: 30 }),
+            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries[0] }),
             headers: { "Content-Type": "application/json" },
           });
           const data = await res.json();
@@ -649,22 +713,8 @@ export const useMemoryStore = createPersistStore(
 
           if (!candidates || candidates.length === 0) return [];
 
-          // Filter out low-relevance results before reranking
-          // _relevance_score is from hybrid/vector search — scores below 0.3 are essentially noise
-          const relevantCandidates = candidates.filter(
-            (c: any) =>
-              c._relevance_score === undefined || c._relevance_score >= 0.3,
-          );
-
-          if (relevantCandidates.length === 0) return [];
-
-          if (relevantCandidates.length <= limit) {
-            // Still rerank with LLM even for small result sets to filter irrelevant content
-            // Fall through to the reranker below instead of returning blindly
-          }
-
-          const candidatesList = relevantCandidates
-            .map((c, i) => `ID: ${i}\nContent: ${c.content}`)
+          const candidatesList = candidates
+            .map((c: any, i: number) => `ID: ${i}\nContent: ${c.content}`)
             .join("\n\n");
 
           const previousContextSection =
@@ -678,7 +728,7 @@ export const useMemoryStore = createPersistStore(
              Current Date: ${today}
              User Query: ${query}
              ${previousContextSection}
-             Here are ${relevantCandidates.length} retrieval candidates from the database.
+             Here are ${candidates.length} retrieval candidates from the database.
              Task: Select snippets that contain specific facts that can help answer the User Query in the current context. 
 
              CRITICAL RULES:
@@ -690,7 +740,7 @@ export const useMemoryStore = createPersistStore(
              6. If the information from the snippets already exist in the recent history, ignore it.
              7. QUANTITY: You may select 0 to ${limit} snippets. Do NOT force yourself to pick ${limit} if they are not good.
              8. If NO snippets are relevant, return an empty array [].
-             9. Return ONLY a JSON array of the matching IDs (integers). Example: [0, 5]
+             9. Return ONLY a JSON object with an "indices" key containing the matching IDs. Example: {"indices": [0, 5]}
        
              Snippets:
              ${candidatesList}
@@ -728,28 +778,42 @@ export const useMemoryStore = createPersistStore(
               },
               onFinish(message) {
                 try {
-                  const indices = extractFirstJsonArray<number[]>(message);
-                  if (indices) {
-                    finalChunks = indices
-                      .map((i) => relevantCandidates[i]?.content)
-                      .filter((c) => !!c);
+                  // Parse response — may be {"indices": [0,5]} (structured) or [0,5] (plain)
+                  let indices: number[] | null = null;
+                  const obj = extractFirstJsonObject(message) as {
+                    indices?: number[];
+                  } | null;
+                  if (obj && Array.isArray(obj.indices)) {
+                    indices = obj.indices;
                   } else {
-                    // Fallback: take top limit
-                    finalChunks = relevantCandidates
-                      .slice(0, limit)
-                      .map((c: any) => c.content);
+                    indices = extractFirstJsonArray<number[]>(message);
+                  }
+
+                  if (indices && indices.length > 0) {
+                    finalChunks = indices
+                      .map((i) => {
+                        const c = candidates[i];
+                        if (!c?.content) return "";
+                        return formatEpisodicEntry(c);
+                      })
+                      .filter((c: string) => !!c);
+                  } else {
+                    // LLM returned empty or unparseable — no relevant candidates
+                    finalChunks = [];
                   }
                 } catch (e) {
-                  finalChunks = relevantCandidates
+                  finalChunks = candidates
                     .slice(0, limit)
-                    .map((c: any) => c.content);
+                    .map((c: any) => formatEpisodicEntry(c));
                 }
                 resolve(finalChunks);
               },
               onError(e) {
                 console.error("[Memory] Rerank failed", e);
                 resolve(
-                  relevantCandidates.slice(0, limit).map((c: any) => c.content),
+                  candidates
+                    .slice(0, limit)
+                    .map((c: any) => formatEpisodicEntry(c)),
                 );
               },
             });
@@ -764,7 +828,7 @@ export const useMemoryStore = createPersistStore(
         query: string,
         previousMemoryContexts: string[] = [],
       ): Promise<string> {
-        if (!get().enabled || Object.keys(get().content).length === 0)
+        if (Object.keys(get().content).length === 0)
           return "";
 
         const config = get().memoryModelConfig;

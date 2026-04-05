@@ -92,6 +92,7 @@ export const DEFAULT_CONFIG = {
     tavilySearchType: "basic" as "basic" | "advanced" | "extract",
     tavilyMaxResults: 5,
     tavilyMaxChunksPerSource: 5,
+    enableMemory: true,
   },
 
   ttsConfig: {
@@ -207,7 +208,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.4,
+    version: 4.5,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -281,6 +282,12 @@ export const useAppConfig = createPersistStore(
         state.modelConfig.reasoningEffort = "";
         state.modelConfig.compressModelReasoningEffort = "";
         state.modelConfig.promptOptimizerReasoningEffort = "";
+      }
+
+      if (version < 4.5) {
+        if (state.modelConfig.enableMemory === undefined) {
+          state.modelConfig.enableMemory = true;
+        }
       }
 
       return state as any;

@@ -18,7 +18,12 @@ function removeAdditionalProperties(schema: any): any {
 // --- Zod schema: single source of truth for tavily tool args ---
 export const tavilyArgsSchema = z.object({
   queries: z
-    .array(z.string())
+    .array(
+      z
+        .string()
+        .trim()
+        .transform((val) => val.replace(/^['"]+|['"]+$/g, ""))
+    )
     .min(1)
     .max(10)
     .describe(

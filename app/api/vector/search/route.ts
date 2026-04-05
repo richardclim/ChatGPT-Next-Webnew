@@ -11,11 +11,36 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { query, limit } = body;
-    if (!query)
-      return NextResponse.json({ error: "Missing query" }, { status: 400 });
+    const { query, queries } = body;
 
-    const results = await searchMemory(query, limit || 30);
+    // Handle array of queries for decomposed search
+    if (queries && Array.isArray(queries) && queries.length > 0) {
+      // Execute all searches concurrently
+      const allResultSets = await Promise.all(
+        queries.map((q: string) => searchMemory(q))
+      );
+      
+      // Flatten results
+      const flattened = allResultSets.flat();
+      
+      // Deduplicate by result id
+      const seen = new Set<string>();
+      const deduped: Record<string, unknown>[] = [];
+      for (const raw of flattened) {
+        const r = raw as Record<string, unknown>;
+        if (r && typeof r.id === "string" && !seen.has(r.id)) {
+          seen.add(r.id);
+          deduped.push(r);
+        }
+      }
+      return NextResponse.json({ results: deduped });
+    }
+
+    // Fallback for single query
+    if (!query)
+      return NextResponse.json({ error: "Missing query or queries" }, { status: 400 });
+
+    const results = await searchMemory(query);
     return NextResponse.json({ results });
   } catch (e) {
     console.error("Vector Search Error", e);

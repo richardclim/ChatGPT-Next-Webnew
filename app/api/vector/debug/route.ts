@@ -3,6 +3,8 @@ import * as lancedb from "@lancedb/lancedb";
 import path from "path";
 import fs from "fs";
 
+import { stripKeywordsLine } from "../store";
+
 const DB_PATH = path.join(process.cwd(), "nextchat-data", "vectors");
 const TABLE_NAME = "episodic_memory";
 
@@ -23,21 +25,7 @@ interface LanceDBRecord {
   _distance?: number; // Added by LanceDB during search operations
 }
 
-/**
- * Normalise session IDs from a raw record, handling both old single-string
- * and new array formats. Falls back to the record id for pre-fix rows.
- */
-function normaliseSessionIds(record: LanceDBRecord): string[] {
-  if (
-    record.sessionIds &&
-    typeof record.sessionIds.length === "number" &&
-    record.sessionIds.length > 0
-  ) {
-    return [...new Set(Array.from(record.sessionIds))];
-  }
-  const legacy = record.sessionId || record.id;
-  return legacy ? [legacy] : [];
-}
+
 
 /**
  * Transformed record for API response (without vector data)
@@ -160,7 +148,7 @@ export async function GET(request: Request) {
     // Apply sessionId filter if provided
     if (sessionIdFilter) {
       allRecords = allRecords.filter((record) =>
-        normaliseSessionIds(record).includes(sessionIdFilter),
+        (Array.from(record.sessionIds || []) as string[]).includes(sessionIdFilter),
       );
     }
 
@@ -177,10 +165,12 @@ export async function GET(request: Request) {
     const records: TransformedRecord[] = paginatedRecords.map(
       (record, index) => {
         const { vector, ...rest } = record;
+        const cleanContent = stripKeywordsLine(record.content || "");
         return {
           _index: offset + index, // Absolute index in the filtered set
           ...rest,
-          sessionIds: normaliseSessionIds(record),
+          content: cleanContent,
+          sessionIds: (record.sessionIds ? Array.from(record.sessionIds) : []) as string[],
           // Format createdAt as human-readable date
           createdAtFormatted: record.createdAt
             ? new Date(record.createdAt).toLocaleString()
@@ -188,9 +178,9 @@ export async function GET(request: Request) {
           vectorDimensions: schemaDimensions,
           // Truncate content preview for list view
           contentPreview:
-            record.content?.length > 200
-              ? record.content.substring(0, 200) + "..."
-              : record.content,
+            cleanContent.length > 200
+              ? cleanContent.substring(0, 200) + "..."
+              : cleanContent,
         };
       },
     );
@@ -198,7 +188,7 @@ export async function GET(request: Request) {
     // Get unique sessionIds across all records (flatten arrays, dedup)
     const uniqueSessionIds = [
       ...new Set(
-        allRecords.flatMap((r) => normaliseSessionIds(r)).filter(Boolean),
+        allRecords.flatMap((r) => r.sessionIds ? Array.from(r.sessionIds) : []).filter(Boolean),
       ),
     ].slice(0, 50); // Limit to 50 sessions
 

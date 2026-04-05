@@ -1107,7 +1107,6 @@ export function Settings() {
   const updateConfig = config.update;
 
   // Extract all memory store hook reads at the top to avoid conditional hook calls
-  const memoryEnabled = useMemoryStore((state) => state.enabled);
   const memoryModel = useMemoryStore((state) => state.memoryModelConfig.model);
   const memoryProviderName = useMemoryStore(
     (state) => state.memoryModelConfig.providerName,
@@ -2468,9 +2467,11 @@ export function Settings() {
             <input
               aria-label={Locale.UserProfile.Enable}
               type="checkbox"
-              checked={memoryEnabled}
+              checked={config.modelConfig.enableMemory}
               onChange={(e) =>
-                useMemoryStore.getState().setEnabled(e.currentTarget.checked)
+                config.update(
+                  (c) => (c.modelConfig.enableMemory = e.currentTarget.checked),
+                )
               }
             ></input>
           </ListItem>
