@@ -123,14 +123,23 @@ export class GeminiProApi implements LLMApi {
       _messages.push({ role: v.role, content });
     }
 
-    // Extract the first system message as a dedicated system_instruction.
-    // Remaining system messages (e.g. memory summary) stay in contents as
-    // user-role messages, matching the previous behaviour.
+    // Extract all system messages as a dedicated system_instruction.
+    // Remaining non-system messages stay in contents.
     let systemInstructionText = "";
-    const firstSystemIdx = _messages.findIndex((v) => v.role === "system");
-    if (firstSystemIdx !== -1) {
-      systemInstructionText = getMessageTextContent(_messages[firstSystemIdx]);
-      _messages.splice(firstSystemIdx, 1);
+    
+    // Find all system messages and concatenate them
+    const systemMessages = _messages.filter((v) => v.role === "system");
+    if (systemMessages.length > 0) {
+      systemInstructionText = systemMessages
+        .map((v) => getMessageTextContent(v))
+        .join("\n\n");
+    }
+    
+    // Remove all system messages from the messages array
+    for (let i = _messages.length - 1; i >= 0; i--) {
+      if (_messages[i].role === "system") {
+        _messages.splice(i, 1);
+      }
     }
 
     const messages = _messages.map((v) => {

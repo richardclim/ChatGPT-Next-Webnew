@@ -1092,6 +1092,9 @@ function _Chat() {
   const chatStore = useChatStore();
   const session = chatStore.currentSession();
   const config = useAppConfig();
+  const memoryContextInjectionDisplay = useMemoryStore(
+    (state) => state.enableContextInjectionDisplay,
+  );
   const fontSize = config.fontSize;
   const fontFamily = config.fontFamily;
 
@@ -1965,7 +1968,7 @@ function _Chat() {
                     >
                       <Fragment>
                         {isUser &&
-                          session.enableMemory &&
+                          memoryContextInjectionDisplay &&
                           !!message.memoryContext && (
                             <div
                               className={clsx(

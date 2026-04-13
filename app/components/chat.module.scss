@@ -626,18 +626,9 @@
   margin-bottom: 20px;
 
   > .chat-message-container > .chat-message-item {
-    background-color: #007aff;
-    color: white;
-
-    * {
-      color: white !important;
-    }
-
-    pre,
-    code {
-      background-color: rgba(255, 255, 255, 0.2) !important;
-      color: white !important;
-    }
+    background-color: rgba(29, 147, 171, 0.08);
+    border-left: 3.5px solid var(--primary);
+    border-radius: 10px;
   }
 
   .chat-message-memory-label {
@@ -647,12 +638,8 @@
     font-weight: bold;
     margin-bottom: 8px;
     padding-bottom: 6px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
-
-    .memory-brain-icon {
-      filter: brightness(0) invert(1);
-    }
+    border-bottom: 1px solid rgba(29, 147, 171, 0.25);
+    color: var(--primary);
   }
 }
 

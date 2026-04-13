@@ -502,17 +502,24 @@ export class ChatGPTApi implements LLMApi {
       }
       if (shouldStream) {
         let index = -1;
-        let [tools, funcs] = usePluginStore
-          .getState()
-          .getAsTools(
-            useChatStore.getState().currentSession().mask?.plugin || [],
-          ) as [any[], Record<string, Function>];
+        let tools: any[] = [];
+        let funcs: Record<string, Function> = {};
 
-        if (modelConfig.enableTavily) {
-          tools.push(tavilyToolDeclaration as any);
-          funcs[TAVILY_TOOL_NAME] = createTavilyHandler(modelConfig);
-          tools.push(tavilyRetrieveDeclaration as any);
-          funcs[TAVILY_RETRIEVE_TOOL_NAME] = createTavilyRetrieveHandler();
+        if (!options.config.useStandardCompletion) {
+          const plugins = usePluginStore
+            .getState()
+            .getAsTools(
+              useChatStore.getState().currentSession().mask?.plugin || [],
+            ) as [any[], Record<string, Function>];
+          tools = plugins[0];
+          funcs = plugins[1];
+
+          if (modelConfig.enableTavily) {
+            tools.push(tavilyToolDeclaration as any);
+            funcs[TAVILY_TOOL_NAME] = createTavilyHandler(modelConfig);
+            tools.push(tavilyRetrieveDeclaration as any);
+            funcs[TAVILY_RETRIEVE_TOOL_NAME] = createTavilyRetrieveHandler();
+          }
         }
 
         // separate SSE parsers for gpt-5 vs others

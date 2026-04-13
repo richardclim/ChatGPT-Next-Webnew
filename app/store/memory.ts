@@ -713,7 +713,16 @@ export const useMemoryStore = createPersistStore(
 
           if (!candidates || candidates.length === 0) return [];
 
-          const candidatesList = candidates
+          const filteredCandidates = candidates.filter((c: any) => {
+            if (!c.content) return false;
+            return !previousMemoryContexts.some((ctx) =>
+              ctx.includes(String(c.content)),
+            );
+          });
+
+          if (filteredCandidates.length === 0) return [];
+
+          const candidatesList = filteredCandidates
             .map((c: any, i: number) => `ID: ${i}\nContent: ${c.content}`)
             .join("\n\n");
 
@@ -728,7 +737,7 @@ export const useMemoryStore = createPersistStore(
              Current Date: ${today}
              User Query: ${query}
              ${previousContextSection}
-             Here are ${candidates.length} retrieval candidates from the database.
+             Here are ${filteredCandidates.length} retrieval candidates from the database.
              Task: Select snippets that contain specific facts that can help answer the User Query in the current context. 
 
              CRITICAL RULES:
@@ -792,7 +801,7 @@ export const useMemoryStore = createPersistStore(
                   if (indices && indices.length > 0) {
                     finalChunks = indices
                       .map((i) => {
-                        const c = candidates[i];
+                        const c = filteredCandidates[i];
                         if (!c?.content) return "";
                         return formatEpisodicEntry(c);
                       })
@@ -802,7 +811,7 @@ export const useMemoryStore = createPersistStore(
                     finalChunks = [];
                   }
                 } catch (e) {
-                  finalChunks = candidates
+                  finalChunks = filteredCandidates
                     .slice(0, limit)
                     .map((c: any) => formatEpisodicEntry(c));
                 }
@@ -811,7 +820,7 @@ export const useMemoryStore = createPersistStore(
               onError(e) {
                 console.error("[Memory] Rerank failed", e);
                 resolve(
-                  candidates
+                  filteredCandidates
                     .slice(0, limit)
                     .map((c: any) => formatEpisodicEntry(c)),
                 );
