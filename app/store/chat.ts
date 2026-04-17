@@ -1159,13 +1159,24 @@ export const useChatStore = createPersistStore(
           // Memory Logic: Retrieve and attach memory context if enabled (and not pasted/MCP)
           if (shouldFetchMemory) {
             try {
+              // Pre-compute query decomposition to avoid hitting the LLM twice
+              const preOptimizedQueries = await memoryStore.decomposeUserQuery(
+                content as string,
+                recentMessagesForExpansion
+              );
+
               const [relevant, episodic] = await Promise.all([
-                memoryStore.findRelevant(content as string, previousMemoryContexts),
+                memoryStore.findRelevant(
+                  content as string, 
+                  previousMemoryContexts,
+                  preOptimizedQueries
+                ),
                 memoryStore.retrieveEpisodicMemory(
                   content as string,
                   undefined,
                   recentMessagesForExpansion,
                   previousMemoryContexts,
+                  preOptimizedQueries
                 ),
               ]);
               const episodicStr =

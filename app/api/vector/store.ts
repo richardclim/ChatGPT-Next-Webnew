@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 
 const DB_PATH = path.join(process.cwd(), "nextchat-data", "vectors");
 const TABLE_NAME = "episodic_memory";
+const PROFILE_TABLE_NAME = "profile_memory";
 
 export interface MemoryChunk {
   id: string;
@@ -339,6 +340,8 @@ export function stripKeywordsLine(content: string): string {
 const VECTOR_SIM_THRESHOLD = 0.5;
 /** Maximum vector search candidates before filtering. */
 const VECTOR_LIMIT = 10;
+/** Maximum vector search candidates specifically for the Profile system. */
+const PROFILE_VECTOR_LIMIT = 30;
 /** Maximum FTS candidates before filtering. */
 const FTS_LIMIT = 10;
 
@@ -424,4 +427,88 @@ export async function searchMemory(query: string) {
     ...rest,
     content: stripKeywordsLine(rest.content as string),
   }));
+}
+
+export async function upsertProfileChunks(
+  upserts: { id: string; content: string }[],
+  deletes: string[] = []
+): Promise<void> {
+  const db = await getDb();
+  const tableNames = await db.tableNames();
+  let table: lancedb.Table;
+
+  if (!tableNames.includes(PROFILE_TABLE_NAME)) {
+    if (upserts.length === 0) return; // Nothing to create
+    
+    const data = [];
+    for (const chunk of upserts) {
+      const vector = await embedText(chunk.content);
+      data.push({ id: chunk.id, content: chunk.content, vector, createdAt: Date.now() });
+    }
+    table = await db.createTable(PROFILE_TABLE_NAME, data);
+    try {
+      await table.createIndex("content", { config: lancedb.Index.fts() });
+      console.log("[Profile Store] FTS index created on new table");
+    } catch (e) {
+      console.warn("[Profile Store] Failed to create FTS index on new table", e);
+    }
+    return;
+  }
+
+  table = await db.openTable(PROFILE_TABLE_NAME);
+
+  // Execute Deletes
+  for (const delId of deletes) {
+    try {
+      await table.delete(`id = '${delId.replace(/'/g, "''")}'`);
+      console.log(`[Profile Store] Deleted ${delId}`);
+    } catch (e) {
+      // Ignore not found
+    }
+  }
+
+  // Execute Upserts
+  if (upserts.length > 0) {
+    const data = [];
+    for (const chunk of upserts) {
+      try {
+        await table.delete(`id = '${chunk.id.replace(/'/g, "''")}'`);
+      } catch (e) {} // delete old if exists
+      const vector = await embedText(chunk.content);
+      data.push({ id: chunk.id, content: chunk.content, vector, createdAt: Date.now() });
+    }
+    await table.add(data);
+    console.log(`[Profile Store] Upserted ${upserts.length} chunks`);
+  }
+}
+
+export async function searchProfileTable(query: string) {
+  const db = await getDb();
+  const tableNames = await db.tableNames();
+  if (!tableNames.includes(PROFILE_TABLE_NAME)) return [];
+
+  const table = await db.openTable(PROFILE_TABLE_NAME);
+
+  let queryVector: number[] = [];
+  try {
+    queryVector = await embedText(query);
+  } catch (e) {
+    console.error("[Profile Store] Embedding generation failed", e);
+    return [];
+  }
+  try {
+    const raw = await table
+      .vectorSearch(queryVector)
+      .distanceType("cosine")
+      .limit(PROFILE_VECTOR_LIMIT)
+      .toArray();
+
+    // Filter to top relevance (using exact same threshold)
+    return raw
+      .filter((r) => 1 - ((r._distance as number) || 0) >= VECTOR_SIM_THRESHOLD)
+      .map(({ vector, ...rest }) => rest);
+  } catch (e) {
+    console.error("[Profile Store] Search failed", e);
+    return [];
+  }
 }

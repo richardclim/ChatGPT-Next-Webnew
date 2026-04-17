@@ -140,7 +140,7 @@ export function buildExtractionPrompt(
       8. **"action":** Specify the operation:
          - "add": to append new elements to an ongoing list (e.g., learned a new programming language).
          - "replace": to completely overwrite a singular fact (e.g., changed address, updated age).
-         - "delete": to remove specific elements from a list (provide the elements in "value"), or to remove the entire fact completely (provide an empty array [] for "value").
+         - "delete": to remove specific elements from a list (provide the elements in "value"). NEVER delete an entire Top-Level category. Only delete specific elements from the value array. Or delete the attribute completely by providing an empty array [].
 
       PART 2: "episodic_summary" (STRING)
       1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval. 
@@ -221,13 +221,17 @@ export interface MemoryStore {
   findRelevant: (
     query: string,
     previousMemoryContexts?: string[],
+    preOptimizedQueries?: string[],
   ) => Promise<string>;
   retrieveEpisodicMemory: (
     query: string,
     limit?: number,
     recentHistory?: ChatMessage[],
     previousMemoryContexts?: string[],
+    preOptimizedQueries?: string[],
   ) => Promise<string[]>;
+  triggerProfileMigration: () => Promise<void>;
+  decomposeUserQuery: (query: string, recentHistory?: ChatMessage[]) => Promise<string[]>;
 }
 
 interface VectorSearchResult {
@@ -263,9 +267,48 @@ export const useMemoryStore = createPersistStore(
       },
 
       updateContent(content: UserProfile) {
+        const oldProfile = get().content || {};
         get().update((state) => {
           state.content = content;
         });
+
+        // Compute diff for Vector DB sync
+        const upserts: { id: string; content: string }[] = [];
+        const deletes: string[] = [];
+
+        const allTopics = new Set([...Object.keys(oldProfile), ...Object.keys(content)]);
+        for (const topic of allTopics) {
+          const oldT = oldProfile[topic] || {};
+          const newT = content[topic] || {};
+          const allCats = new Set([...Object.keys(oldT), ...Object.keys(newT)]);
+          
+          for (const category of allCats) {
+            const id = `profile_${topic}_${category}`;
+            const newItems = newT[category];
+            const oldItems = oldT[category];
+
+            // Deep compare to only sync actual changes
+            const isDifferent = JSON.stringify(newItems) !== JSON.stringify(oldItems);
+
+            if (isDifferent) {
+              if (Array.isArray(newItems) && newItems.length > 0) {
+                const textContent = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(newItems)}`;
+                upserts.push({ id, content: textContent });
+              } else if (oldItems && (!Array.isArray(newItems) || newItems.length === 0)) {
+                deletes.push(id);
+              }
+            }
+          }
+        }
+
+        if (upserts.length > 0 || deletes.length > 0) {
+          fetch("/api/vector/profile/upsert", {
+            method: "POST",
+            body: JSON.stringify({ upserts, deletes }),
+            headers: { "Content-Type": "application/json" },
+            keepalive: true
+          }).catch(err => console.error("[Memory] UI Profile Sync Error", err));
+        }
       },
 
       updateMemoryModelConfig(updater: (config: MemoryConfig) => void) {
@@ -488,6 +531,35 @@ export const useMemoryStore = createPersistStore(
                         "[Memory] Profile updated successfully",
                         profile_updates,
                       );
+
+                      // Sync directly to Vector DB
+                      const upserts: { id: string; content: string }[] = [];
+                      const deletes: string[] = [];
+
+                      for (const update of profile_updates) {
+                        const category = update.category || update.Category;
+                        const attribute = update.attribute || update.Attribute;
+                        if (!category || !attribute) continue;
+
+                        const id = `profile_${category}_${attribute}`;
+                        if (newProfile[category] && newProfile[category][attribute]) {
+                          const items = newProfile[category][attribute];
+                          const content = `Topic: ${category}, Category: ${attribute}. Items: ${JSON.stringify(items)}`;
+                          upserts.push({ id, content });
+                        } else {
+                          deletes.push(id);
+                        }
+                      }
+
+                      if (upserts.length > 0 || deletes.length > 0) {
+                        fetch("/api/vector/profile/upsert", {
+                          method: "POST",
+                          body: JSON.stringify({ upserts, deletes }),
+                          headers: { "Content-Type": "application/json" },
+                          keepalive: true
+                        }).catch(err => console.error("[Memory] Profile Sync Error", err));
+                      }
+
                     } else {
                       console.log("[Memory] No profile updates needed");
                     }
@@ -520,6 +592,7 @@ export const useMemoryStore = createPersistStore(
                         headers: {
                           "Content-Type": "application/json",
                         },
+                        keepalive: true,
                       })
                         .then(async (res) => {
                           if (res.ok) {
@@ -595,11 +668,9 @@ export const useMemoryStore = createPersistStore(
         });
       },
 
-      async retrieveEpisodicMemory(
+      async decomposeUserQuery(
         query: string,
-        limit: number = 20,
         recentHistory: ChatMessage[] = [],
-        previousMemoryContexts: string[] = [],
       ): Promise<string[]> {
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
@@ -671,20 +742,17 @@ export const useMemoryStore = createPersistStore(
                 try {
                   const extracted = extractFirstJsonObject(message) as { queries?: string[] } | null;
                   if (extracted && Array.isArray(extracted.queries) && extracted.queries.length > 0) {
-                    // Filter out any non-string or empty queries
                     const validQueries = extracted.queries.filter(q => typeof q === 'string' && q.trim().length > 0);
                     if (validQueries.length > 0) {
-                      optimizedQueries = validQueries.slice(0, 5); // cap at 5 just in case
+                      optimizedQueries = validQueries.slice(0, 5); 
                       console.log(
                         `[Memory] Query Expanded & Decomposed: "${query}" ->`,
                         optimizedQueries
                       );
                     }
                   } else {
-                    // Fallback to treating the entire message as a single query string if JSON parsing fails
                     if (message && message.trim().length > 0 && !message.trim().startsWith("{")) {
                       optimizedQueries = [message.trim()];
-                      console.log(`[Memory] Query Expanded: "${query}" -> "${optimizedQueries[0]}"`);
                     }
                   }
                 } catch (err) {
@@ -700,6 +768,28 @@ export const useMemoryStore = createPersistStore(
         } catch (e) {
           console.warn("[Memory] Query expansion failed, using original query");
         }
+        
+        return optimizedQueries;
+      },
+
+      async retrieveEpisodicMemory(
+        query: string,
+        limit: number = 20,
+        recentHistory: ChatMessage[] = [],
+        previousMemoryContexts: string[] = [],
+        preOptimizedQueries?: string[],
+      ): Promise<string[]> {
+        const config = get().memoryModelConfig;
+        const api = getClientApi(config.providerName as ServiceProvider);
+        const today = new Date().toLocaleString();
+
+        const geminiJsonMode = config.providerName === "Google";
+        const openAIJsonMode =
+          config.providerName === "OpenAI" || config.providerName === "Azure";
+
+        const optimizedQueries = preOptimizedQueries || await get().decomposeUserQuery(query, recentHistory);
+
+
 
         try {
           // 1. Vector + FTS search (pre-filtered server-side by cosine and BM25 thresholds)
@@ -836,12 +926,64 @@ export const useMemoryStore = createPersistStore(
       async findRelevant(
         query: string,
         previousMemoryContexts: string[] = [],
+        preOptimizedQueries?: string[],
       ): Promise<string> {
-        if (Object.keys(get().content).length === 0)
+        const fullProfile = get().content;
+        if (Object.keys(fullProfile).length === 0)
           return "";
 
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
+
+        // 1. Decompose Query
+        const optimizedQueries = preOptimizedQueries || await get().decomposeUserQuery(query);
+
+        // 2. Vector Search (Level-2 Index Cards)
+        let matchedChunks: any[] = [];
+        try {
+          const res = await fetch("/api/vector/profile/search", {
+            method: "POST",
+            body: JSON.stringify({ queries: optimizedQueries }),
+            headers: { "Content-Type": "application/json" }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            matchedChunks = data.results || [];
+          }
+        } catch (e) {
+          console.error("[Memory] Profile vector search failed", e);
+        }
+
+        // 3. Assemble specifically fetched JSON Arrays
+        const fetchedArrays: string[] = [];
+        const seenCategories = new Set<string>();
+
+        // We pull the raw JSON data for matched Topics & Categories
+        for (const chunk of matchedChunks) {
+          const id = String(chunk.id || ""); // "profile_topic_category"
+          if (id.startsWith("profile_")) {
+            const parts = id.replace("profile_", "").split("_");
+            if (parts.length >= 2) {
+              const topic = parts[0];
+              const category = parts.slice(1).join("_"); // reconstructed
+              
+              if (!seenCategories.has(`${topic}_${category}`)) {
+                seenCategories.add(`${topic}_${category}`);
+                if (fullProfile[topic] && fullProfile[topic][category]) {
+                  const arr = fullProfile[topic][category];
+                  fetchedArrays.push(`Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(arr)}`);
+                }
+              }
+            }
+          }
+        }
+
+        // If vector search failed or found nothing, fallback to empty
+        if (fetchedArrays.length === 0) {
+           return "";
+        }
+
+        const candidateJsonStr = fetchedArrays.join("\n\n");
 
         const previousContextSection =
           previousMemoryContexts.length > 0
@@ -851,16 +993,17 @@ export const useMemoryStore = createPersistStore(
             : "";
 
         const prompt = `
-      User Profile (JSON):
-      ${JSON.stringify(get().content, null, 2)}
+      User Profile Matching Records (Partial Data):
+      ${candidateJsonStr}
 
       User Query:
       ${query}
       ${previousContextSection}
       Instruction:
-      Select ONLY the facts from the User Profile that are DIRECTLY relevant to the User Query.
+      You are provided with specific User Profile categories fetched from a database based on the query.
+      Select ONLY the facts from these records that are DIRECTLY relevant to answering the User Query.
       DEDUPLICATION: If the facts are already present in the ALREADY ATTACHED CONTEXT above, do NOT include them again.
-      Return them as a concise list.
+      Return the relevant facts as a concise list.
       If nothing is relevant, or if all relevant facts are already in the attached context, return "NO_CONTEXT".
       `;
 
@@ -897,6 +1040,37 @@ export const useMemoryStore = createPersistStore(
           }
         });
       },
+
+      async triggerProfileMigration() {
+        const profile = get().content;
+        const upserts: { id: string; content: string }[] = [];
+        
+        for (const [topic, categories] of Object.entries(profile)) {
+          if (typeof categories === 'object' && categories !== null) {
+            for (const [category, items] of Object.entries(categories)) {
+              if (Array.isArray(items) && items.length > 0) {
+                const id = `profile_${topic}_${category}`;
+                const content = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(items)}`;
+                upserts.push({ id, content });
+              }
+            }
+          }
+        }
+        
+        if (upserts.length > 0) {
+          try {
+            await fetch("/api/vector/profile/upsert", {
+              method: "POST",
+              body: JSON.stringify({ upserts }),
+              headers: { "Content-Type": "application/json" },
+              keepalive: true
+            });
+            console.log("[Memory] Profile Migration Complete. Bootstrapped " + upserts.length + " vectors.");
+          } catch (e) {
+            console.error("[Memory] Profile Migration Error", e);
+          }
+        }
+      },
     };
 
     return methods;
@@ -906,3 +1080,7 @@ export const useMemoryStore = createPersistStore(
     version: 1,
   },
 );
+
+if (typeof window !== "undefined") {
+  (window as any).useMemoryStore = useMemoryStore;
+}
