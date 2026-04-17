@@ -1503,7 +1503,10 @@ export const useChatStore = createPersistStore(
         }
 
         if (modelConfig.enableTavily) {
-          systemParts.push(TAVILY_SYSTEM_TEMPLATE);
+          systemParts.push(
+            TAVILY_SYSTEM_TEMPLATE +
+              `\n\nCurrent Date: ${new Date().toDateString()}`
+          );
         }
 
         var systemPrompts: ChatMessage[] = [];
