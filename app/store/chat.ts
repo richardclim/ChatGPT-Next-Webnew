@@ -256,6 +256,7 @@ function fillTemplateWith(input: string, modelConfig: ModelConfig) {
     cutoff,
     model: modelConfig.model,
     time: new Date().toString(),
+    date: new Date().toDateString(),
     lang: getLang(),
     input: input,
   };
@@ -1503,11 +1504,17 @@ export const useChatStore = createPersistStore(
         }
 
         if (modelConfig.enableTavily) {
-          systemParts.push(
-            TAVILY_SYSTEM_TEMPLATE +
-              `\n\nCurrent Date: ${new Date().toDateString()}`
-          );
+          systemParts.push(TAVILY_SYSTEM_TEMPLATE);
         }
+
+        const cutoff = KnowledgeCutOffDate[modelConfig.model];
+        const timeAwareness = [
+          cutoff ? `Knowledge Cutoff: ${cutoff}` : "",
+          `Current Date: ${new Date().toDateString()}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        systemParts.push(timeAwareness);
 
         var systemPrompts: ChatMessage[] = [];
         if (systemParts.length > 0) {
