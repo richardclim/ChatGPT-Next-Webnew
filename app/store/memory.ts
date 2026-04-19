@@ -825,9 +825,14 @@ export const useMemoryStore = createPersistStore(
 
           const rerankPrompt = `
              Current Date: ${today}
-             User Query: ${query}
              ${previousContextSection}
              Here are ${filteredCandidates.length} retrieval candidates from the database.
+
+             Snippets:
+             ${candidatesList}
+
+             User Query: ${query}
+             
              Task: Select snippets that contain specific facts that can help answer the User Query in the current context. 
 
              CRITICAL RULES:
@@ -840,9 +845,6 @@ export const useMemoryStore = createPersistStore(
              7. QUANTITY: You may select 0 to ${limit} snippets. Do NOT force yourself to pick ${limit} if they are not good.
              8. If NO snippets are relevant, return an empty array [].
              9. Return ONLY a JSON object with an "indices" key containing the matching IDs. Example: {"indices": [0, 5]}
-       
-             Snippets:
-             ${candidatesList}
              `;
 
           return new Promise((resolve) => {

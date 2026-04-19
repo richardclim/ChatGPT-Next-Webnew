@@ -336,8 +336,10 @@ export function stripKeywordsLine(content: string): string {
   return content.replace(/\n\s*Keywords:.*$/i, "").trim();
 }
 
-/** Cosine similarity threshold — results below this are considered noise. */
-const VECTOR_SIM_THRESHOLD = 0.5;
+/** Cosine similarity threshold — results below this are considered noise for episodic memory. */
+const VECTOR_SIM_THRESHOLD = 0.6;
+/** Cosine similarity threshold — stricter threshold for profile memory fact retrieval. */
+const PROFILE_SIM_THRESHOLD = 0.65;
 /** Maximum vector search candidates before filtering. */
 const VECTOR_LIMIT = 10;
 /** Maximum vector search candidates specifically for the Profile system. */
@@ -386,10 +388,10 @@ export async function searchMemory(query: string) {
   try {
     const raw = await table.search(query, "fts").limit(FTS_LIMIT).toArray();
 
-    // Keep only results with a positive BM25 score (at least one keyword matched).
-    ftsResults = raw.filter((r) => ((r._score as number) ?? 0) > 0);
+    // Keep only results with a BM25 score > 2.0 (requires stronger keyword overlap).
+    ftsResults = raw.filter((r) => ((r._score as number) ?? 0) > 2.0);
     console.log(
-      `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after BM25 > 0`,
+      `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after BM25 > 2.0`,
     );
   } catch (ftsError) {
     // FTS index may not exist yet — this is non-fatal.
@@ -503,9 +505,9 @@ export async function searchProfileTable(query: string) {
       .limit(PROFILE_VECTOR_LIMIT)
       .toArray();
 
-    // Filter to top relevance (using exact same threshold)
+    // Filter to top relevance using the stricter profile threshold
     return raw
-      .filter((r) => 1 - ((r._distance as number) || 0) >= VECTOR_SIM_THRESHOLD)
+      .filter((r) => 1 - ((r._distance as number) || 0) >= PROFILE_SIM_THRESHOLD)
       .map(({ vector, ...rest }) => rest);
   } catch (e) {
     console.error("[Profile Store] Search failed", e);
