@@ -532,34 +532,6 @@ export const useMemoryStore = createPersistStore(
                         profile_updates,
                       );
 
-                      // Sync directly to Vector DB
-                      const upserts: { id: string; content: string }[] = [];
-                      const deletes: string[] = [];
-
-                      for (const update of profile_updates) {
-                        const category = update.category || update.Category;
-                        const attribute = update.attribute || update.Attribute;
-                        if (!category || !attribute) continue;
-
-                        const id = `profile_${category}_${attribute}`;
-                        if (newProfile[category] && newProfile[category][attribute]) {
-                          const items = newProfile[category][attribute];
-                          const content = `Topic: ${category}, Category: ${attribute}. Items: ${JSON.stringify(items)}`;
-                          upserts.push({ id, content });
-                        } else {
-                          deletes.push(id);
-                        }
-                      }
-
-                      if (upserts.length > 0 || deletes.length > 0) {
-                        fetch("/api/vector/profile/upsert", {
-                          method: "POST",
-                          body: JSON.stringify({ upserts, deletes }),
-                          headers: { "Content-Type": "application/json" },
-                          keepalive: true
-                        }).catch(err => console.error("[Memory] Profile Sync Error", err));
-                      }
-
                     } else {
                       console.log("[Memory] No profile updates needed");
                     }
