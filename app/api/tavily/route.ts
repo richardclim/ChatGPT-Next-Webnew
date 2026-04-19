@@ -171,6 +171,30 @@ export async function POST(req: NextRequest) {
     const uniqueResultsMap = new Map<string, any>();
     const MAX_CONTENT_LENGTH = 20000;
 
+    const getDeduplicationKey = (urlString: string) => {
+      try {
+        const parsedUrl = new URL(urlString);
+        const trackingParams = [
+          "srsltid",
+          "gclid",
+          "fbclid",
+          "msclkid",
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_term",
+          "utm_content",
+          "igshid",
+        ];
+        trackingParams.forEach((param) => parsedUrl.searchParams.delete(param));
+        parsedUrl.hash = ""; // Remove fragments as they often point to the same document
+        return parsedUrl.toString();
+      } catch (e) {
+        // Fallback if URL is malformed
+        return urlString;
+      }
+    };
+
     for (const item of aggregatedResults) {
       // Handle Search API results (grouped by query)
       if (item.query && Array.isArray(item.results)) {
@@ -186,8 +210,10 @@ export async function POST(req: NextRequest) {
               "\n\n...[Extracted content truncated at 20k characters for length]";
           }
 
-          if (uniqueResultsMap.has(result.url)) {
-            const existing = uniqueResultsMap.get(result.url);
+          const dedupKey = getDeduplicationKey(result.url);
+
+          if (uniqueResultsMap.has(dedupKey)) {
+            const existing = uniqueResultsMap.get(dedupKey);
 
             // Track matched queries
             if (!existing.matched_queries) existing.matched_queries = [];
@@ -219,7 +245,7 @@ export async function POST(req: NextRequest) {
               existing.raw_content = result.raw_content;
             }
           } else {
-            uniqueResultsMap.set(result.url, {
+            uniqueResultsMap.set(dedupKey, {
               ...result,
               matched_queries: [item.query],
             });
@@ -234,8 +260,10 @@ export async function POST(req: NextRequest) {
             "\n\n...[Extracted content truncated at 20k characters for length]";
         }
 
-        if (uniqueResultsMap.has(item.url)) {
-          const existing = uniqueResultsMap.get(item.url);
+        const dedupKey = getDeduplicationKey(item.url);
+
+        if (uniqueResultsMap.has(dedupKey)) {
+          const existing = uniqueResultsMap.get(dedupKey);
 
           if (!existing.matched_queries) existing.matched_queries = [];
           if (!existing.matched_queries.includes("extract")) {
@@ -246,7 +274,7 @@ export async function POST(req: NextRequest) {
             existing.raw_content = item.raw_content;
           }
         } else {
-          uniqueResultsMap.set(item.url, {
+          uniqueResultsMap.set(dedupKey, {
             ...item,
             matched_queries: ["extract"],
           });
