@@ -347,7 +347,8 @@ const PROFILE_VECTOR_LIMIT = 30;
 /** Maximum FTS candidates before filtering. */
 const FTS_LIMIT = 10;
 
-export async function searchMemory(query: string) {
+export async function searchMemory(args: { semanticQuery: string, keywordQuery: string }) {
+  const { semanticQuery, keywordQuery } = args;
   const db = await getDb();
   const tableNames = await db.tableNames();
   if (!tableNames.includes(TABLE_NAME)) return [];
@@ -357,7 +358,7 @@ export async function searchMemory(query: string) {
   // Generate query embedding for vector search
   let queryVector: number[] = [];
   try {
-    queryVector = await embedText(query);
+    queryVector = await embedText(semanticQuery);
   } catch (e) {
     console.error("[Vector Store] Embedding generation failed", e);
     return [];
@@ -385,22 +386,26 @@ export async function searchMemory(query: string) {
 
   // --- 2. Full-text search (keyword matching) ---
   let ftsResults: Record<string, unknown>[] = [];
-  try {
-    const raw = await table.search(query, "fts").limit(FTS_LIMIT).toArray();
+  if (keywordQuery && keywordQuery.trim().length > 0) {
+    try {
+      const raw = await table.search(keywordQuery, "fts").limit(FTS_LIMIT).toArray();
 
-    // Keep only results with a BM25 score > 2.0 (requires stronger keyword overlap).
-    ftsResults = raw.filter((r) => ((r._score as number) ?? 0) > 2.0);
-    console.log(
-      `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after BM25 > 2.0`,
-    );
-  } catch (ftsError) {
-    // FTS index may not exist yet — this is non-fatal.
-    console.warn(
-      "[Vector Store] FTS unavailable (index may be missing), skipping.",
-      ftsError,
-    );
+      // Relative filtering: Keep results that score at least 60% of the top match
+      if (raw.length > 0) {
+        const topScore = (raw[0]._score as number) || 0;
+        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * 0.6);
+      }
+      console.log(
+        `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after relative threshold (top = ${raw.length ? raw[0]._score : 0})`,
+      );
+    } catch (ftsError) {
+      // FTS index may not exist yet — this is non-fatal.
+      console.warn(
+        "[Vector Store] FTS unavailable (index may be missing), skipping.",
+        ftsError,
+      );
+    }
   }
-
   // --- 3. Union + deduplicate by id ---
   const seen = new Set<string>();
   const merged: Record<string, unknown>[] = [];
@@ -484,7 +489,8 @@ export async function upsertProfileChunks(
   }
 }
 
-export async function searchProfileTable(query: string) {
+export async function searchProfileTable(args: { semanticQuery: string, keywordQuery: string }) {
+  const { semanticQuery, keywordQuery } = args;
   const db = await getDb();
   const tableNames = await db.tableNames();
   if (!tableNames.includes(PROFILE_TABLE_NAME)) return [];
@@ -493,11 +499,12 @@ export async function searchProfileTable(query: string) {
 
   let queryVector: number[] = [];
   try {
-    queryVector = await embedText(query);
+    queryVector = await embedText(semanticQuery);
   } catch (e) {
     console.error("[Profile Store] Embedding generation failed", e);
     return [];
   }
+  let vectorResults: Record<string, unknown>[] = [];
   try {
     const raw = await table
       .vectorSearch(queryVector)
@@ -506,11 +513,43 @@ export async function searchProfileTable(query: string) {
       .toArray();
 
     // Filter to top relevance using the stricter profile threshold
-    return raw
-      .filter((r) => 1 - ((r._distance as number) || 0) >= PROFILE_SIM_THRESHOLD)
-      .map(({ vector, ...rest }) => rest);
+    vectorResults = raw.filter((r) => 1 - ((r._distance as number) || 0) >= PROFILE_SIM_THRESHOLD);
   } catch (e) {
     console.error("[Profile Store] Search failed", e);
-    return [];
   }
+
+  // --- 2. Full-text search (keyword matching) ---
+  let ftsResults: Record<string, unknown>[] = [];
+  if (keywordQuery && keywordQuery.trim().length > 0) {
+    try {
+      const raw = await table.search(keywordQuery, "fts").limit(FTS_LIMIT).toArray();
+      if (raw.length > 0) {
+        const topScore = (raw[0]._score as number) || 0;
+        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * 0.6);
+      }
+    } catch (ftsError) {
+      console.warn("[Profile Store] FTS unavailable, skipping.", ftsError);
+    }
+  }
+
+  // --- 3. Union + deduplicate by id ---
+  const seen = new Set<string>();
+  const merged: Record<string, unknown>[] = [];
+
+  for (const r of vectorResults) {
+    const id = r.id as string;
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(r);
+    }
+  }
+  for (const r of ftsResults) {
+    const id = r.id as string;
+    if (!seen.has(id)) {
+      seen.add(id);
+      merged.push(r);
+    }
+  }
+
+  return merged.map(({ vector, ...rest }) => rest);
 }

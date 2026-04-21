@@ -13,14 +13,24 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { query, queries } = body;
 
-    // Handle array of queries for decomposed search
-    if (queries && Array.isArray(queries) && queries.length > 0) {
-      // Execute all searches concurrently
-      const allResultSets = await Promise.all(
-        queries.map((q: string) => searchMemory(q))
-      );
-      
-      // Flatten results
+    // Handle object structure for decomposed hybrid search
+    if (queries && typeof queries === 'object' && !Array.isArray(queries)) {
+      const semantics = Array.isArray(queries.semantic) ? queries.semantic : [];
+      const keywords = Array.isArray(queries.keyword) ? queries.keyword : [];
+      const maxLength = Math.max(semantics.length, keywords.length);
+
+      if (maxLength > 0) {
+        // Execute all searches concurrently
+        const allResultSets = await Promise.all(
+          Array.from({ length: maxLength }).map((_, i) => {
+            return searchMemory({
+              semanticQuery: semantics[i] || (i === 0 ? query : ""),
+              keywordQuery: keywords[i] || (i === 0 ? query : "")
+            });
+          })
+        );
+        
+        // Flatten results
       const flattened = allResultSets.flat();
       
       // Deduplicate by result id
@@ -33,14 +43,15 @@ export async function POST(req: NextRequest) {
           deduped.push(r);
         }
       }
-      return NextResponse.json({ results: deduped });
+        return NextResponse.json({ results: deduped });
+      }
     }
 
     // Fallback for single query
     if (!query)
       return NextResponse.json({ error: "Missing query or queries" }, { status: 400 });
 
-    const results = await searchMemory(query);
+    const results = await searchMemory({ semanticQuery: query, keywordQuery: query });
     return NextResponse.json({ results });
   } catch (e) {
     console.error("Vector Search Error", e);

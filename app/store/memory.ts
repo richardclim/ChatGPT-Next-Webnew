@@ -69,7 +69,8 @@ const rerankSchema = z
 
 const decompositionSchema = z
   .object({
-    queries: z.array(z.string()).max(5).describe("List of standalone search queries extracted from the user prompt."),
+    semantic_queries: z.array(z.string()).max(5).describe("List of standalone semantic search phrases for vector database matching."),
+    keyword_queries: z.array(z.string()).max(5).describe("List of strict keyword strings for full-text search. Strip all conversational filler words."),
   })
   .strict();
 
@@ -221,17 +222,17 @@ export interface MemoryStore {
   findRelevant: (
     query: string,
     previousMemoryContexts?: string[],
-    preOptimizedQueries?: string[],
+    preOptimizedQueries?: { semantic: string[]; keyword: string[] },
   ) => Promise<string>;
   retrieveEpisodicMemory: (
     query: string,
     limit?: number,
     recentHistory?: ChatMessage[],
     previousMemoryContexts?: string[],
-    preOptimizedQueries?: string[],
+    preOptimizedQueries?: { semantic: string[]; keyword: string[] },
   ) => Promise<string[]>;
   triggerProfileMigration: () => Promise<void>;
-  decomposeUserQuery: (query: string, recentHistory?: ChatMessage[]) => Promise<string[]>;
+  decomposeUserQuery: (query: string, recentHistory?: ChatMessage[]) => Promise<{ semantic: string[]; keyword: string[] }>;
 }
 
 interface VectorSearchResult {
@@ -643,7 +644,7 @@ export const useMemoryStore = createPersistStore(
       async decomposeUserQuery(
         query: string,
         recentHistory: ChatMessage[] = [],
-      ): Promise<string[]> {
+      ): Promise<{ semantic: string[]; keyword: string[] }> {
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
         const today = new Date().toLocaleString();
@@ -670,19 +671,23 @@ export const useMemoryStore = createPersistStore(
             USER QUERY (this is the SOLE focus of the search):
             "${query}"
 
-            Task: Decompose the USER QUERY into standalone search queries for a Vector Database.
+            Task: Decompose the USER QUERY into standalone search queries for a Hybrid Database.
             1. ONLY split the query if it contains genuinely distinct topics. Break complex questions into 1 to 5 separate sub-queries. Do NOT artificially over-divide cohesive concepts.
             2. The search queries must be about the USER QUERY topics ONLY. Do NOT include topics from the Reference Context unless the User Query explicitly refers to them.
-            3. Remove conversational filler.
-            4. If the query implies a specific time, convert to an absolute date.
-            5. Extract key entities and preserve technical keywords exactly as written.
-            6. RESOLVE REFERENCES: Replace pronouns like "it" or "that" with the specific entity from the Reference Context.
+            3. For 'semantic_queries', provide the query as a full phrase or sentence to preserve semantic meaning.
+            4. For 'keyword_queries', provide the query with ALL conversational filler words removed. Keep ONLY high-value nouns, specific entities, acronyms or tech names.
+            5. STRICT 1-TO-1 MAPPING: You MUST generate an identical number of 'keyword_queries' as 'semantic_queries'. The keyword phase at index 0 must correspond exactly to the semantic phrase at index 0, and so on.
+            6. If the query implies a specific time, convert to an absolute date.
+            7. RESOLVE REFERENCES: Replace pronouns like "it" or "that" with the specific entity from the Reference Context.
             
             Return ONLY a valid JSON object in the following format:
-            {"queries": ["query 1", "query 2"]}
+            {"semantic_queries": ["phrase1", "phrase2"], "keyword_queries": ["keywords1", "keywords2"]}
         `;
 
-        let optimizedQueries: string[] = [query];
+        let optimizedQueries: { semantic: string[]; keyword: string[] } = {
+          semantic: [query],
+          keyword: [query]
+        };
 
         try {
           await new Promise((resolve) => {
@@ -712,11 +717,16 @@ export const useMemoryStore = createPersistStore(
               },
               onFinish(message) {
                 try {
-                  const extracted = extractFirstJsonObject(message) as { queries?: string[] } | null;
-                  if (extracted && Array.isArray(extracted.queries) && extracted.queries.length > 0) {
-                    const validQueries = extracted.queries.filter(q => typeof q === 'string' && q.trim().length > 0);
-                    if (validQueries.length > 0) {
-                      optimizedQueries = validQueries.slice(0, 5); 
+                  const extracted = extractFirstJsonObject(message) as { semantic_queries?: string[], keyword_queries?: string[] } | null;
+                  if (extracted && (Array.isArray(extracted.semantic_queries) || Array.isArray(extracted.keyword_queries))) {
+                    const validSemantic = (extracted.semantic_queries || []).filter(q => typeof q === 'string' && q.trim().length > 0).slice(0, 5);
+                    const validKeyword = (extracted.keyword_queries || []).filter(q => typeof q === 'string' && q.trim().length > 0).slice(0, 5);
+                    
+                    if (validSemantic.length > 0 || validKeyword.length > 0) {
+                      optimizedQueries = {
+                        semantic: validSemantic.length > 0 ? validSemantic : [query],
+                        keyword: validKeyword.length > 0 ? validKeyword : [query]
+                      };
                       console.log(
                         `[Memory] Query Expanded & Decomposed: "${query}" ->`,
                         optimizedQueries
@@ -724,7 +734,7 @@ export const useMemoryStore = createPersistStore(
                     }
                   } else {
                     if (message && message.trim().length > 0 && !message.trim().startsWith("{")) {
-                      optimizedQueries = [message.trim()];
+                      optimizedQueries = { semantic: [message.trim()], keyword: [message.trim()] };
                     }
                   }
                 } catch (err) {
@@ -749,7 +759,7 @@ export const useMemoryStore = createPersistStore(
         limit: number = 20,
         recentHistory: ChatMessage[] = [],
         previousMemoryContexts: string[] = [],
-        preOptimizedQueries?: string[],
+        preOptimizedQueries?: { semantic: string[]; keyword: string[] },
       ): Promise<string[]> {
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
@@ -761,15 +771,15 @@ export const useMemoryStore = createPersistStore(
 
         const optimizedQueries = preOptimizedQueries || await get().decomposeUserQuery(query, recentHistory);
 
-
-
         try {
           // 1. Vector + FTS search (pre-filtered server-side by cosine and BM25 thresholds)
           const res = await fetch("/api/vector/search", {
             method: "POST",
-            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries[0] }),
+            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries.semantic[0] || optimizedQueries.keyword[0] || query }),
             headers: { "Content-Type": "application/json" },
           });
+          if (!res.ok) throw new Error(`Search API returned ${res.status}`);
+
           const data = await res.json();
           const candidates = data.results as any[]; // Expected { content: string, id: string, ... }[]
 
@@ -892,7 +902,7 @@ export const useMemoryStore = createPersistStore(
             });
           });
         } catch (e) {
-          console.error("[Memory] RetrieveEpisodicMemory failed", e);
+          console.error("[CRITICAL_MEMORY_FAILURE] RetrieveEpisodicMemory failed. Returning empty local context.", e);
           return [];
         }
       },
@@ -900,7 +910,7 @@ export const useMemoryStore = createPersistStore(
       async findRelevant(
         query: string,
         previousMemoryContexts: string[] = [],
-        preOptimizedQueries?: string[],
+        preOptimizedQueries?: { semantic: string[]; keyword: string[] },
       ): Promise<string> {
         const fullProfile = get().content;
         if (Object.keys(fullProfile).length === 0)
@@ -917,13 +927,13 @@ export const useMemoryStore = createPersistStore(
         try {
           const res = await fetch("/api/vector/profile/search", {
             method: "POST",
-            body: JSON.stringify({ queries: optimizedQueries }),
+            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries.semantic[0] || optimizedQueries.keyword[0] || query }),
             headers: { "Content-Type": "application/json" }
           });
-          if (res.ok) {
-            const data = await res.json();
-            matchedChunks = data.results || [];
-          }
+          if (!res.ok) throw new Error(`Profile Search API returned ${res.status}`);
+          const data = await res.json();
+          matchedChunks = data.results || [];
+
         } catch (e) {
           console.error("[Memory] Profile vector search failed", e);
         }
@@ -1009,7 +1019,7 @@ export const useMemoryStore = createPersistStore(
               },
             });
           } catch (e) {
-            console.error("[Memory] FindRelevant Exception", e);
+            console.error("[CRITICAL_MEMORY_FAILURE] FindRelevant Exception", e);
             resolve("");
           }
         });
