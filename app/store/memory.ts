@@ -69,14 +69,26 @@ const rerankSchema = z
 
 const decompositionSchema = z
   .object({
-    semantic_queries: z.array(z.string()).max(5).describe("List of standalone semantic search phrases for vector database matching."),
-    keyword_queries: z.array(z.string()).max(5).describe("List of strict keyword strings for full-text search. Strip all conversational filler words."),
+    semantic_queries: z
+      .array(z.string())
+      .max(5)
+      .describe(
+        "List of standalone semantic search phrases for vector database matching.",
+      ),
+    keyword_queries: z
+      .array(z.string())
+      .max(5)
+      .describe(
+        "List of strict keyword strings for full-text search. Strip all conversational filler words.",
+      ),
   })
   .strict();
 
 const memoryJsonSchemaCache = zodToJsonSchema(memorySchema as any) as any;
 const rerankJsonSchemaCache = zodToJsonSchema(rerankSchema as any) as any;
-const decompositionJsonSchemaCache = zodToJsonSchema(decompositionSchema as any) as any;
+const decompositionJsonSchemaCache = zodToJsonSchema(
+  decompositionSchema as any,
+) as any;
 
 /** Format a single episodic memory candidate with date context for LLM injection. */
 function formatEpisodicEntry(candidate: Record<string, unknown>): string {
@@ -118,7 +130,7 @@ export function buildExtractionPrompt(
   previousSummary?: string,
 ): string {
   let prompt = `
-      You are a Archivist, responsible for organizing user memory from the chat session. 
+      You are a Archivist, responsible for organizing user memory from the chat session.
       Current Date: ${today}
 
       --- INPUT DATA ---
@@ -134,19 +146,19 @@ export function buildExtractionPrompt(
       1. **Goal:** Extract permanent and/or actionable facts about the user to UPDATE their profile.
       2. **IGNORE:** Temporary states (hunger, mood, etc.), immediate needs, or generic greetings.
       3. **Conflict Resolution:** If new info contradicts the Existing Profile, trust the NEW information.
-      4. **New Information:** If a fact is entirely new, add it to the profile. 
+      4. **New Information:** If a fact is entirely new, add it to the profile.
       5. **"category":** The broad domain (e.g., "coding", "personal", "health").
       6. **"attribute":** The specific variable name (e.g., "language", "city", "allergies").
-      7. **"value":** The factual value(s) as an array of strings. 
+      7. **"value":** The factual value(s) as an array of strings.
       8. **"action":** Specify the operation:
          - "add": to append new elements to an ongoing list (e.g., learned a new programming language).
          - "replace": to completely overwrite a singular fact (e.g., changed address, updated age).
          - "delete": to remove specific elements from a list (provide the elements in "value"). NEVER delete an entire Top-Level category. Only delete specific elements from the value array. Or delete the attribute completely by providing an empty array [].
 
       PART 2: "episodic_summary" (STRING)
-      1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval. 
+      1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval.
       2. **Content:** Focus on the USER's goals, the problem discussed, the solutions proposed, and any specific entities or topics of interest.
-      3. **Contextualization:** If the conversation references past topics or user history, explicitly mention that connection (e.g., "User referenced their previous project on X"). 
+      3. **Contextualization:** If the conversation references past topics or user history, explicitly mention that connection (e.g., "User referenced their previous project on X").
       4. **Temporal Grounding:** Use the current data to make relative dates absolute. (e.g., "tomorrow" will be converted to the absolute date based on the current date provided)
       5. **DO NOT** include keywords, tags, or keyword lists inside the episodic_summary. The summary must be pure narrative only.
 
@@ -232,7 +244,10 @@ export interface MemoryStore {
     preOptimizedQueries?: { semantic: string[]; keyword: string[] },
   ) => Promise<string[]>;
   triggerProfileMigration: () => Promise<void>;
-  decomposeUserQuery: (query: string, recentHistory?: ChatMessage[]) => Promise<{ semantic: string[]; keyword: string[] }>;
+  decomposeUserQuery: (
+    query: string,
+    recentHistory?: ChatMessage[],
+  ) => Promise<{ semantic: string[]; keyword: string[] }>;
 }
 
 interface VectorSearchResult {
@@ -248,7 +263,7 @@ export const useMemoryStore = createPersistStore(
     enableContextInjectionDisplay: false,
     content: {} as UserProfile,
     memoryModelConfig: {
-      model: "gpt-4o-mini",
+      model: "gpt-5.4-mini",
       providerName: "OpenAI",
       temperature: 1,
       reasoningEffort: "",
@@ -277,25 +292,34 @@ export const useMemoryStore = createPersistStore(
         const upserts: { id: string; content: string }[] = [];
         const deletes: string[] = [];
 
-        const allTopics = new Set([...Object.keys(oldProfile), ...Object.keys(content)]);
+        const allTopics = new Set([
+          ...Object.keys(oldProfile),
+          ...Object.keys(content),
+        ]);
         for (const topic of allTopics) {
           const oldT = oldProfile[topic] || {};
           const newT = content[topic] || {};
           const allCats = new Set([...Object.keys(oldT), ...Object.keys(newT)]);
-          
+
           for (const category of allCats) {
             const id = `profile_${topic}_${category}`;
             const newItems = newT[category];
             const oldItems = oldT[category];
 
             // Deep compare to only sync actual changes
-            const isDifferent = JSON.stringify(newItems) !== JSON.stringify(oldItems);
+            const isDifferent =
+              JSON.stringify(newItems) !== JSON.stringify(oldItems);
 
             if (isDifferent) {
               if (Array.isArray(newItems) && newItems.length > 0) {
-                const textContent = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(newItems)}`;
+                const textContent = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(
+                  newItems,
+                )}`;
                 upserts.push({ id, content: textContent });
-              } else if (oldItems && (!Array.isArray(newItems) || newItems.length === 0)) {
+              } else if (
+                oldItems &&
+                (!Array.isArray(newItems) || newItems.length === 0)
+              ) {
                 deletes.push(id);
               }
             }
@@ -307,8 +331,10 @@ export const useMemoryStore = createPersistStore(
             method: "POST",
             body: JSON.stringify({ upserts, deletes }),
             headers: { "Content-Type": "application/json" },
-            keepalive: true
-          }).catch(err => console.error("[Memory] UI Profile Sync Error", err));
+            keepalive: true,
+          }).catch((err) =>
+            console.error("[Memory] UI Profile Sync Error", err),
+          );
         }
       },
 
@@ -393,7 +419,7 @@ export const useMemoryStore = createPersistStore(
         return new Promise<ExtractionResult | undefined>((resolve) => {
           try {
             api.llm.chat({
-              messages: [createMessage({ role: "system", content: prompt })],
+              messages: [createMessage({ role: "user", content: prompt })],
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
@@ -532,7 +558,6 @@ export const useMemoryStore = createPersistStore(
                         "[Memory] Profile updated successfully",
                         profile_updates,
                       );
-
                     } else {
                       console.log("[Memory] No profile updates needed");
                     }
@@ -655,7 +680,7 @@ export const useMemoryStore = createPersistStore(
 
         const expansionPrompt = `
             Current Date: ${today}
-            
+
             REFERENCE CONTEXT (use ONLY to resolve ambiguous references like "it", "that", "the error"):
             ${
               recentHistory.filter(
@@ -679,21 +704,21 @@ export const useMemoryStore = createPersistStore(
             5. STRICT 1-TO-1 MAPPING: You MUST generate an identical number of 'keyword_queries' as 'semantic_queries'. The keyword phase at index 0 must correspond exactly to the semantic phrase at index 0, and so on.
             6. If the query implies a specific time, convert to an absolute date.
             7. RESOLVE REFERENCES: Replace pronouns like "it" or "that" with the specific entity from the Reference Context.
-            
+
             Return ONLY a valid JSON object in the following format:
             {"semantic_queries": ["phrase1", "phrase2"], "keyword_queries": ["keywords1", "keywords2"]}
         `;
 
         let optimizedQueries: { semantic: string[]; keyword: string[] } = {
           semantic: [query],
-          keyword: [query]
+          keyword: [query],
         };
 
         try {
           await new Promise((resolve) => {
             api.llm.chat({
               messages: [
-                createMessage({ role: "system", content: expansionPrompt }),
+                createMessage({ role: "user", content: expansionPrompt }),
               ],
               config: {
                 ...config,
@@ -702,8 +727,12 @@ export const useMemoryStore = createPersistStore(
                 stream: false,
                 useStandardCompletion: true,
                 suppressReasoningOutput: true,
-                responseMimeType: geminiJsonMode ? "application/json" : undefined,
-                responseJsonSchema: geminiJsonMode ? decompositionJsonSchemaCache : undefined,
+                responseMimeType: geminiJsonMode
+                  ? "application/json"
+                  : undefined,
+                responseJsonSchema: geminiJsonMode
+                  ? decompositionJsonSchemaCache
+                  : undefined,
                 response_format: openAIJsonMode
                   ? {
                       type: "json_schema",
@@ -717,28 +746,55 @@ export const useMemoryStore = createPersistStore(
               },
               onFinish(message) {
                 try {
-                  const extracted = extractFirstJsonObject(message) as { semantic_queries?: string[], keyword_queries?: string[] } | null;
-                  if (extracted && (Array.isArray(extracted.semantic_queries) || Array.isArray(extracted.keyword_queries))) {
-                    const validSemantic = (extracted.semantic_queries || []).filter(q => typeof q === 'string' && q.trim().length > 0).slice(0, 5);
-                    const validKeyword = (extracted.keyword_queries || []).filter(q => typeof q === 'string' && q.trim().length > 0).slice(0, 5);
-                    
+                  const extracted = extractFirstJsonObject(message) as {
+                    semantic_queries?: string[];
+                    keyword_queries?: string[];
+                  } | null;
+                  if (
+                    extracted &&
+                    (Array.isArray(extracted.semantic_queries) ||
+                      Array.isArray(extracted.keyword_queries))
+                  ) {
+                    const validSemantic = (extracted.semantic_queries || [])
+                      .filter(
+                        (q) => typeof q === "string" && q.trim().length > 0,
+                      )
+                      .slice(0, 5);
+                    const validKeyword = (extracted.keyword_queries || [])
+                      .filter(
+                        (q) => typeof q === "string" && q.trim().length > 0,
+                      )
+                      .slice(0, 5);
+
                     if (validSemantic.length > 0 || validKeyword.length > 0) {
                       optimizedQueries = {
-                        semantic: validSemantic.length > 0 ? validSemantic : [query],
-                        keyword: validKeyword.length > 0 ? validKeyword : [query]
+                        semantic:
+                          validSemantic.length > 0 ? validSemantic : [query],
+                        keyword:
+                          validKeyword.length > 0 ? validKeyword : [query],
                       };
                       console.log(
                         `[Memory] Query Expanded & Decomposed: "${query}" ->`,
-                        optimizedQueries
+                        optimizedQueries,
                       );
                     }
                   } else {
-                    if (message && message.trim().length > 0 && !message.trim().startsWith("{")) {
-                      optimizedQueries = { semantic: [message.trim()], keyword: [message.trim()] };
+                    if (
+                      message &&
+                      message.trim().length > 0 &&
+                      !message.trim().startsWith("{")
+                    ) {
+                      optimizedQueries = {
+                        semantic: [message.trim()],
+                        keyword: [message.trim()],
+                      };
                     }
                   }
                 } catch (err) {
-                  console.warn("[Memory] Failed to parse decomposition output", err);
+                  console.warn(
+                    "[Memory] Failed to parse decomposition output",
+                    err,
+                  );
                 }
                 resolve(null);
               },
@@ -750,7 +806,7 @@ export const useMemoryStore = createPersistStore(
         } catch (e) {
           console.warn("[Memory] Query expansion failed, using original query");
         }
-        
+
         return optimizedQueries;
       },
 
@@ -769,13 +825,21 @@ export const useMemoryStore = createPersistStore(
         const openAIJsonMode =
           config.providerName === "OpenAI" || config.providerName === "Azure";
 
-        const optimizedQueries = preOptimizedQueries || await get().decomposeUserQuery(query, recentHistory);
+        const optimizedQueries =
+          preOptimizedQueries ||
+          (await get().decomposeUserQuery(query, recentHistory));
 
         try {
           // 1. Vector + FTS search (pre-filtered server-side by cosine and BM25 thresholds)
           const res = await fetch("/api/vector/search", {
             method: "POST",
-            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries.semantic[0] || optimizedQueries.keyword[0] || query }),
+            body: JSON.stringify({
+              queries: optimizedQueries,
+              query:
+                optimizedQueries.semantic[0] ||
+                optimizedQueries.keyword[0] ||
+                query,
+            }),
             headers: { "Content-Type": "application/json" },
           });
           if (!res.ok) throw new Error(`Search API returned ${res.status}`);
@@ -814,11 +878,11 @@ export const useMemoryStore = createPersistStore(
              ${candidatesList}
 
              User Query: ${query}
-             
-             Task: Select snippets that contain specific facts that can help answer the User Query in the current context. 
+
+             Task: Select snippets that contain specific facts that can help answer the User Query in the current context.
 
              CRITICAL RULES:
-             1. RELEVANCE IS KEY: Only select snippets that are strictly relevant and helps answer the query. 
+             1. RELEVANCE IS KEY: Only select snippets that are strictly relevant and helps answer the query.
              2. IGNORE NOISE: If a snippet talks about a different topic, ignore it.
              3. CONTEXT AWARENESS: Use the Recent Context to disambiguate. (e.g. if Context is about "Production DB", ignore snippets about "Test DB").
              4. VALUE ADD: Prioritize snippets that add *new* details or specific facts not fully explained in the immediate history.
@@ -833,7 +897,7 @@ export const useMemoryStore = createPersistStore(
             let finalChunks: string[] = [];
             api.llm.chat({
               messages: [
-                createMessage({ role: "system", content: rerankPrompt }),
+                createMessage({ role: "user", content: rerankPrompt }),
               ],
               config: {
                 ...config,
@@ -902,7 +966,10 @@ export const useMemoryStore = createPersistStore(
             });
           });
         } catch (e) {
-          console.error("[CRITICAL_MEMORY_FAILURE] RetrieveEpisodicMemory failed. Returning empty local context.", e);
+          console.error(
+            "[CRITICAL_MEMORY_FAILURE] RetrieveEpisodicMemory failed. Returning empty local context.",
+            e,
+          );
           return [];
         }
       },
@@ -913,27 +980,33 @@ export const useMemoryStore = createPersistStore(
         preOptimizedQueries?: { semantic: string[]; keyword: string[] },
       ): Promise<string> {
         const fullProfile = get().content;
-        if (Object.keys(fullProfile).length === 0)
-          return "";
+        if (Object.keys(fullProfile).length === 0) return "";
 
         const config = get().memoryModelConfig;
         const api = getClientApi(config.providerName as ServiceProvider);
 
         // 1. Decompose Query
-        const optimizedQueries = preOptimizedQueries || await get().decomposeUserQuery(query);
+        const optimizedQueries =
+          preOptimizedQueries || (await get().decomposeUserQuery(query));
 
         // 2. Vector Search (Level-2 Index Cards)
         let matchedChunks: any[] = [];
         try {
           const res = await fetch("/api/vector/profile/search", {
             method: "POST",
-            body: JSON.stringify({ queries: optimizedQueries, query: optimizedQueries.semantic[0] || optimizedQueries.keyword[0] || query }),
-            headers: { "Content-Type": "application/json" }
+            body: JSON.stringify({
+              queries: optimizedQueries,
+              query:
+                optimizedQueries.semantic[0] ||
+                optimizedQueries.keyword[0] ||
+                query,
+            }),
+            headers: { "Content-Type": "application/json" },
           });
-          if (!res.ok) throw new Error(`Profile Search API returned ${res.status}`);
+          if (!res.ok)
+            throw new Error(`Profile Search API returned ${res.status}`);
           const data = await res.json();
           matchedChunks = data.results || [];
-
         } catch (e) {
           console.error("[Memory] Profile vector search failed", e);
         }
@@ -950,12 +1023,16 @@ export const useMemoryStore = createPersistStore(
             if (parts.length >= 2) {
               const topic = parts[0];
               const category = parts.slice(1).join("_"); // reconstructed
-              
+
               if (!seenCategories.has(`${topic}_${category}`)) {
                 seenCategories.add(`${topic}_${category}`);
                 if (fullProfile[topic] && fullProfile[topic][category]) {
                   const arr = fullProfile[topic][category];
-                  fetchedArrays.push(`Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(arr)}`);
+                  fetchedArrays.push(
+                    `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(
+                      arr,
+                    )}`,
+                  );
                 }
               }
             }
@@ -964,7 +1041,7 @@ export const useMemoryStore = createPersistStore(
 
         // If vector search failed or found nothing, fallback to empty
         if (fetchedArrays.length === 0) {
-           return "";
+          return "";
         }
 
         const candidateJsonStr = fetchedArrays.join("\n\n");
@@ -995,7 +1072,7 @@ export const useMemoryStore = createPersistStore(
           let result = "";
           try {
             api.llm.chat({
-              messages: [createMessage({ role: "system", content: prompt })],
+              messages: [createMessage({ role: "user", content: prompt })],
               config: {
                 ...config,
                 temperature: 1, // Hardcoded fallback for deterministic memory extraction
@@ -1019,7 +1096,10 @@ export const useMemoryStore = createPersistStore(
               },
             });
           } catch (e) {
-            console.error("[CRITICAL_MEMORY_FAILURE] FindRelevant Exception", e);
+            console.error(
+              "[CRITICAL_MEMORY_FAILURE] FindRelevant Exception",
+              e,
+            );
             resolve("");
           }
         });
@@ -1028,28 +1108,34 @@ export const useMemoryStore = createPersistStore(
       async triggerProfileMigration() {
         const profile = get().content;
         const upserts: { id: string; content: string }[] = [];
-        
+
         for (const [topic, categories] of Object.entries(profile)) {
-          if (typeof categories === 'object' && categories !== null) {
+          if (typeof categories === "object" && categories !== null) {
             for (const [category, items] of Object.entries(categories)) {
               if (Array.isArray(items) && items.length > 0) {
                 const id = `profile_${topic}_${category}`;
-                const content = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(items)}`;
+                const content = `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(
+                  items,
+                )}`;
                 upserts.push({ id, content });
               }
             }
           }
         }
-        
+
         if (upserts.length > 0) {
           try {
             await fetch("/api/vector/profile/upsert", {
               method: "POST",
               body: JSON.stringify({ upserts }),
               headers: { "Content-Type": "application/json" },
-              keepalive: true
+              keepalive: true,
             });
-            console.log("[Memory] Profile Migration Complete. Bootstrapped " + upserts.length + " vectors.");
+            console.log(
+              "[Memory] Profile Migration Complete. Bootstrapped " +
+                upserts.length +
+                " vectors.",
+            );
           } catch (e) {
             console.error("[Memory] Profile Migration Error", e);
           }
