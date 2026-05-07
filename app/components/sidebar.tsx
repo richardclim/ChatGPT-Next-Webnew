@@ -44,22 +44,20 @@ const ChatList = dynamic(async () => (await import("./chat-list")).ChatList, {
 });
 
 export function useHotKey() {
-  const chatStore = useChatStore();
-
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.altKey || e.ctrlKey) {
         if (e.key === "ArrowUp") {
-          chatStore.nextSession(-1);
+          useChatStore.getState().nextSession(-1);
         } else if (e.key === "ArrowDown") {
-          chatStore.nextSession(1);
+          useChatStore.getState().nextSession(1);
         }
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  });
+  }, []);
 }
 
 export function useDragSideBar() {
@@ -235,7 +233,6 @@ export function SideBar(props: { className?: string }) {
   const [showDiscoverySelector, setshowDiscoverySelector] = useState(false);
   const navigate = useNavigate();
   const config = useAppConfig();
-  const chatStore = useChatStore();
   const [mcpEnabled, setMcpEnabled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -329,7 +326,8 @@ export function SideBar(props: { className?: string }) {
                 icon={<DeleteIcon />}
                 onClick={async () => {
                   if (await showConfirm(Locale.Home.DeleteChat)) {
-                    chatStore.deleteSession(chatStore.currentSessionIndex);
+                    const store = useChatStore.getState();
+                    store.deleteSession(store.currentSessionIndex);
                   }
                 }}
               />
@@ -360,7 +358,7 @@ export function SideBar(props: { className?: string }) {
             text={shouldNarrow ? undefined : Locale.Home.NewChat}
             onClick={() => {
               if (config.dontShowMaskSplashScreen) {
-                chatStore.newSession();
+                useChatStore.getState().newSession();
                 navigate(Path.Chat);
               } else {
                 navigate(Path.NewChat);
