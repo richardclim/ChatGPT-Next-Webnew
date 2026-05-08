@@ -4,6 +4,7 @@ import yaml from "js-yaml";
 import { PLUGINS_REPO_URL } from "../constant";
 import { IconButton } from "./button";
 import { ErrorBoundary } from "./error";
+import { escapeHtml } from "../utils/format";
 
 import styles from "./mask.module.scss";
 import pluginStyles from "./plugin.module.scss";
@@ -346,7 +347,7 @@ export function PluginPage() {
                       <code
                         contentEditable={true}
                         dangerouslySetInnerHTML={{
-                          __html: editingPlugin.content,
+                          __html: escapeHtml(editingPlugin.content),
                         }}
                         onBlur={onChangePlugin}
                       ></code>
