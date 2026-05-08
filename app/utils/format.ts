@@ -12,6 +12,15 @@ export function prettyObject(msg: any) {
   return ["```json", msg, "```"].join("\n");
 }
 
+export function escapeHtml(unsafe: string): string {
+  return (unsafe || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function* chunks(s: string, maxBytes = 1000 * 1000) {
   const decoder = new TextDecoder("utf-8");
   let buf = new TextEncoder().encode(s);
