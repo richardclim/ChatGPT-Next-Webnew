@@ -37,9 +37,10 @@ import { memorySchema } from "../memory";
  */
 describe("Property 1: Memory schema accepts and requires is_continuation", () => {
   const validProfileUpdate = fc.record({
+    topic: fc.string({ minLength: 1 }),
     category: fc.string({ minLength: 1 }),
-    attribute: fc.string({ minLength: 1 }),
     value: fc.array(fc.string(), { minLength: 1 }),
+    action: fc.constantFrom("add", "replace", "delete"),
   });
 
   const validMemoryObject = fc.record({
@@ -47,6 +48,7 @@ describe("Property 1: Memory schema accepts and requires is_continuation", () =>
     episodic_summary: fc.string(),
     keywords: fc.array(fc.string()),
     is_continuation: fc.boolean(),
+    replace_memory_ids: fc.array(fc.string()),
   });
 
   it("should parse successfully when is_continuation is a boolean", () => {
@@ -112,27 +114,27 @@ describe("Property 2: Prompt includes previous summary and continuation instruct
   const arbitraryTranscript = fc.string({ minLength: 1 });
   const nonEmptySummary = fc.string({ minLength: 1 });
 
-  it("should contain the previous summary verbatim and continuation instructions when previousSummary is non-empty", () => {
+  it("should contain the retrieved context verbatim and consolidation instructions when context is non-empty", () => {
     fc.assert(
       fc.property(
         arbitraryDate,
         arbitraryProfileJson,
         arbitraryTranscript,
         nonEmptySummary,
-        (today, profileJson, chatTranscript, previousSummary) => {
+        (today, profileJson, chatTranscript, context) => {
           const prompt = buildExtractionPrompt(
             today,
             profileJson,
             chatTranscript,
-            previousSummary,
+            context,
           );
 
-          // Req 2.1: prompt contains the previous summary verbatim
-          expect(prompt).toContain(previousSummary);
-          // Req 2.1: prompt contains "PREVIOUS SUMMARY" section
-          expect(prompt).toContain("PREVIOUS SUMMARY");
-          // Req 4.1, 4.2, 4.3: prompt contains continuation instructions
-          expect(prompt).toContain("CONTINUATION INSTRUCTIONS");
+          // Req 2.1: prompt contains the retrieved context verbatim
+          expect(prompt).toContain(context);
+          // Req 2.1: prompt contains "RETRIEVED EXISTING EPISODIC MEMORY" section
+          expect(prompt).toContain("RETRIEVED EXISTING EPISODIC MEMORY");
+          // Req 4.1, 4.2, 4.3: prompt contains consolidation instructions
+          expect(prompt).toContain("CONTINUATION & CONSOLIDATION INSTRUCTIONS");
           // Req 4.2: instructs to set is_continuation to true
           expect(prompt).toContain("is_continuation to true");
           // Req 4.3: instructs to set is_continuation to false for new topics
@@ -143,7 +145,7 @@ describe("Property 2: Prompt includes previous summary and continuation instruct
     );
   });
 
-  it("should NOT contain PREVIOUS SUMMARY and should instruct always false when previousSummary is undefined", () => {
+  it("should NOT contain RETRIEVED EXISTING EPISODIC MEMORY and should instruct always false when context is undefined", () => {
     fc.assert(
       fc.property(
         arbitraryDate,
@@ -157,8 +159,8 @@ describe("Property 2: Prompt includes previous summary and continuation instruct
             undefined,
           );
 
-          // Req 2.2: no PREVIOUS SUMMARY section
-          expect(prompt).not.toContain("PREVIOUS SUMMARY");
+          // Req 2.2: no context section
+          expect(prompt).not.toContain("RETRIEVED EXISTING EPISODIC MEMORY");
           // Req 4.4: instructs to always set is_continuation to false
           expect(prompt).toContain("Always set is_continuation to false");
         },
@@ -167,7 +169,7 @@ describe("Property 2: Prompt includes previous summary and continuation instruct
     );
   });
 
-  it("should treat empty string previousSummary like undefined (falsy)", () => {
+  it("should treat empty string context like undefined (falsy)", () => {
     fc.assert(
       fc.property(
         arbitraryDate,
@@ -181,8 +183,8 @@ describe("Property 2: Prompt includes previous summary and continuation instruct
             "",
           );
 
-          // Empty string is falsy — should behave like no previous summary
-          expect(prompt).not.toContain("PREVIOUS SUMMARY");
+          // Empty string is falsy — should behave like no context summary
+          expect(prompt).not.toContain("RETRIEVED EXISTING EPISODIC MEMORY");
           expect(prompt).toContain("Always set is_continuation to false");
         },
       ),
@@ -204,25 +206,25 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
   const arbitraryTimestamp = fc.nat();
   const nonEmptyEntryId = fc.string({ minLength: 1 });
 
-  it("should include replaceEntryId when isContinuation is true AND lastEpisodicEntryId is a non-empty string", () => {
+  it("should include replaceEntryIds when isContinuation is true AND replaceIds list is non-empty", () => {
     fc.assert(
       fc.property(
         arbitrarySessionId,
         arbitraryContent,
         arbitraryKeywords,
         arbitraryTimestamp,
-        nonEmptyEntryId,
-        (sessionId, content, keywords, createdAt, entryId) => {
+        fc.array(fc.string({ minLength: 1 }), { minLength: 1 }),
+        (sessionId, content, keywords, createdAt, replaceIds) => {
           const chunk = buildUpsertChunk(
             sessionId,
             content,
             keywords,
             createdAt,
             true,
-            entryId,
+            replaceIds,
           );
 
-          expect(chunk).toHaveProperty("replaceEntryId", entryId);
+          expect(chunk).toHaveProperty("replaceEntryIds", replaceIds);
           expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
           expect(chunk.keywords).toBe(keywords);
@@ -233,25 +235,25 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
     );
   });
 
-  it("should NOT include replaceEntryId when isContinuation is false", () => {
+  it("should NOT include replaceEntryIds when isContinuation is false", () => {
     fc.assert(
       fc.property(
         arbitrarySessionId,
         arbitraryContent,
         arbitraryKeywords,
         arbitraryTimestamp,
-        fc.option(fc.string({ minLength: 1 }), { nil: undefined }),
-        (sessionId, content, keywords, createdAt, maybeEntryId) => {
+        fc.option(fc.array(fc.string()), { nil: undefined }),
+        (sessionId, content, keywords, createdAt, maybeReplaceIds) => {
           const chunk = buildUpsertChunk(
             sessionId,
             content,
             keywords,
             createdAt,
             false,
-            maybeEntryId,
+            maybeReplaceIds as string[],
           );
 
-          expect(chunk).not.toHaveProperty("replaceEntryId");
+          expect(chunk).not.toHaveProperty("replaceEntryIds");
           expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
         },
@@ -260,7 +262,7 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
     );
   });
 
-  it("should NOT include replaceEntryId when isContinuation is true AND lastEpisodicEntryId is undefined", () => {
+  it("should NOT include replaceEntryIds when isContinuation is true AND replaceIds list is undefined", () => {
     fc.assert(
       fc.property(
         arbitrarySessionId,
@@ -277,7 +279,7 @@ describe("Property 3: Client-side routing includes replaceEntryId if and only if
             undefined,
           );
 
-          expect(chunk).not.toHaveProperty("replaceEntryId");
+          expect(chunk).not.toHaveProperty("replaceEntryIds");
           expect(chunk.id).toBe("mock-id");
           expect(chunk.content).toBe(content);
         },

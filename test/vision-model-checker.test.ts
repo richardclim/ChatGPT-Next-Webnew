@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+jest.mock("nanoid", () => ({ nanoid: () => "mock-id" }));
+jest.mock("lodash-es", () => ({}));
 import { isVisionModel } from "../app/utils";
 
 describe("isVisionModel", () => {

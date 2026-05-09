@@ -85,6 +85,9 @@ export const DEFAULT_CONFIG = {
     promptOptimizerModel: "",
     promptOptimizerProviderName: "",
     promptOptimizerInstructions: "",
+    workspaceModel: "",
+    workspaceProviderName: "",
+    workspaceReasoningEffort: "",
     reasoningEffort: "",
     compressModelReasoningEffort: "",
     promptOptimizerReasoningEffort: "",
@@ -208,7 +211,7 @@ export const useAppConfig = createPersistStore(
   }),
   {
     name: StoreKey.Config,
-    version: 4.5,
+    version: 4.6,
 
     merge(persistedState, currentState) {
       const state = persistedState as ChatConfig | undefined;
@@ -288,6 +291,12 @@ export const useAppConfig = createPersistStore(
         if (state.modelConfig.enableMemory === undefined) {
           state.modelConfig.enableMemory = true;
         }
+      }
+
+      if (version < 4.6) {
+        state.modelConfig.workspaceModel = "";
+        state.modelConfig.workspaceProviderName = "";
+        state.modelConfig.workspaceReasoningEffort = "";
       }
 
       return state as any;

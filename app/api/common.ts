@@ -144,40 +144,55 @@ export async function requestOpenai(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(fetchUrl, fetchOptions);
-
-    // Extract the OpenAI-Organization header from the response
-    const openaiOrganizationHeader = res.headers.get("OpenAI-Organization");
-
-    // Check if serverConfig.openaiOrgId is defined and not an empty string
-    if (serverConfig.openaiOrgId && serverConfig.openaiOrgId.trim() !== "") {
-      // If openaiOrganizationHeader is present, log it; otherwise, log that the header is not present
-      console.log("[Org ID]", openaiOrganizationHeader);
-    } else {
-      console.log("[Org ID] is not set up.");
-    }
-
     // to prevent browser prompt for credentials
-    const newHeaders = new Headers(res.headers);
-    newHeaders.delete("www-authenticate");
-    // to disable nginx buffering
+    const newHeaders = new Headers();
     newHeaders.set("X-Accel-Buffering", "no");
 
-    // Conditionally delete the OpenAI-Organization header from the response if [Org ID] is undefined or empty (not setup in ENV)
-    // Also, this is to prevent the header from being sent to the client
-    if (!serverConfig.openaiOrgId || serverConfig.openaiOrgId.trim() === "") {
-      newHeaders.delete("OpenAI-Organization");
-    }
+    // Extract headers for the heartbeat detection
+    const isStream = req.headers.get("accept") === "text/event-stream";
+    const heartbeatChar = isStream ? ": heartbeat\n\n" : " ";
+    const encoder = new TextEncoder();
 
-    // The latest version of the OpenAI API forced the content-encoding to be "br" in json response
-    // So if the streaming is disabled, we need to remove the content-encoding header
-    // Because Vercel uses gzip to compress the response, if we don't remove the content-encoding header
-    // The browser will try to decode the response with brotli and fail
-    newHeaders.delete("content-encoding");
+    const stream = new ReadableStream({
+      async start(streamController) {
+        const interval = setInterval(() => {
+          try {
+            streamController.enqueue(encoder.encode(heartbeatChar));
+          } catch (e) {
+            clearInterval(interval);
+          }
+        }, 15000);
 
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
+        try {
+          const res = await fetch(fetchUrl, fetchOptions);
+          clearInterval(interval);
+
+          // Extract the OpenAI-Organization header from the response
+          const openaiOrganizationHeader = res.headers.get("OpenAI-Organization");
+          if (serverConfig.openaiOrgId && serverConfig.openaiOrgId.trim() !== "") {
+            console.log("[Org ID]", openaiOrganizationHeader);
+          } else {
+            console.log("[Org ID] is not set up.");
+          }
+
+          if (res.body) {
+            const reader = res.body.getReader();
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              streamController.enqueue(value);
+            }
+          }
+          streamController.close();
+        } catch (e) {
+          clearInterval(interval);
+          streamController.error(e);
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200, // We must return 200 immediately to start the heartbeat
       headers: newHeaders,
     });
   } finally {

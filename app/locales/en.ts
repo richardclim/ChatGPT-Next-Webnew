@@ -604,6 +604,12 @@ const en = {
       InstructionsSubTitle: "Instructions for the prompt optimizer",
       Edit: "Edit Instructions",
     },
+    Workspace: {
+      Title: "Workspace Document Synthesizer",
+      Model: "Synthesizer Model",
+      ModelSubTitle: "Model used for background workspace document updates",
+      SelectModel: "Select a model...",
+    },
     Temperature: {
       Title: "Temperature",
       SubTitle: "A larger value makes the more random output",

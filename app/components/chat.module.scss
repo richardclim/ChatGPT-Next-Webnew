@@ -145,11 +145,24 @@
       }
     }
 
-    .text,
-    .icon {
+    .text {
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+
+    .icon {
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+
+      svg {
+        flex-shrink: 0;
+      }
     }
 
     &.active {

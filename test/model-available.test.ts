@@ -1,9 +1,20 @@
 import { isModelNotavailableInServer } from "../app/utils/model";
 
 describe("isModelNotavailableInServer", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.resetModules();
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
   test("test model will return false, which means the model is available", () => {
     const customModels = "";
-    const modelName = "gpt-4";
+    const modelName = "gpt-5";
     const providerNames = "OpenAI";
     const result = isModelNotavailableInServer(
       customModels,

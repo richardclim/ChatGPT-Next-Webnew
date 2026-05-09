@@ -2461,6 +2461,66 @@ export function Settings() {
 
         <List>
           <ListItem
+            title={Locale.Settings.Workspace.Title}
+            subTitle={Locale.Settings.Workspace.ModelSubTitle}
+          >
+            <div className={modelConfigStyles["model-effort-row"]}>
+              <ModelSelect
+                aria-label={Locale.Settings.Workspace.Model}
+                value={`${config.modelConfig.workspaceModel}@${config.modelConfig.workspaceProviderName}`}
+                models={groupModels}
+                onChange={(val) => {
+                  const [model, providerName] = getModelProvider(val);
+                  config.update((c) => {
+                    c.modelConfig.workspaceModel = model;
+                    c.modelConfig.workspaceProviderName = providerName as ServiceProvider;
+                    c.modelConfig.workspaceReasoningEffort = "";
+                  });
+                }}
+              />
+              {getModelEffortLevels(config.modelConfig.workspaceModel) && (
+                <>
+                  <select
+                    aria-label={Locale.Settings.ReasoningEffort.Title}
+                    className={modelConfigStyles["effort-select"]}
+                    value={config.modelConfig.workspaceReasoningEffort || ""}
+                    onChange={(e) => {
+                      config.update((c) => {
+                        c.modelConfig.workspaceReasoningEffort = e.target.value;
+                      });
+                    }}
+                  >
+                    <option value="">Default (highest)</option>
+                    {getModelEffortLevels(config.modelConfig.workspaceModel)?.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                  <span className={modelConfigStyles["effort-info"]}>
+                    <button
+                      type="button"
+                      className={modelConfigStyles["effort-info-btn"]}
+                      aria-label={Locale.Settings.ReasoningEffort.SubTitle}
+                      tabIndex={0}
+                    >
+                      i
+                    </button>
+                    <span
+                      className={modelConfigStyles["effort-tooltip"]}
+                      role="tooltip"
+                    >
+                      {Locale.Settings.ReasoningEffort.SubTitle}
+                    </span>
+                  </span>
+                </>
+              )}
+            </div>
+          </ListItem>
+        </List>
+
+        <List>
+          <ListItem
             title={Locale.UserProfile.Enable}
             subTitle={Locale.UserProfile.EnableSubTitle}
           >

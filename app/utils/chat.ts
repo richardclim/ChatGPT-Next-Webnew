@@ -399,7 +399,6 @@ export function stream(
       },
       onerror(e) {
         options?.onError?.(e);
-        throw e;
       },
       openWhenHidden: true,
     });
@@ -710,7 +709,6 @@ export function streamWithThink(
       },
       onerror(e) {
         options?.onError?.(e);
-        throw e;
       },
       openWhenHidden: true,
     });

@@ -3,6 +3,7 @@
 require("../polyfill");
 
 import { useEffect, useState } from "react";
+import { IconContext } from "@phosphor-icons/react";
 import styles from "./home.module.scss";
 
 import BotIcon from "../icons/bot.svg";
@@ -272,10 +273,12 @@ export function Home() {
   }
 
   return (
-    <ErrorBoundary>
-      <Router>
-        <Screen />
-      </Router>
-    </ErrorBoundary>
+    <IconContext.Provider value={{ size: 20, weight: "regular" }}>
+      <ErrorBoundary>
+        <Router>
+          <Screen />
+        </Router>
+      </ErrorBoundary>
+    </IconContext.Provider>
   );
 }

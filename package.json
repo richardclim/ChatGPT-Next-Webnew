@@ -17,8 +17,8 @@
     "prompts": "node ./scripts/fetch-prompts.mjs",
     "prepare": "husky install",
     "proxy-dev": "sh ./scripts/init-proxy.sh && proxychains -f ./scripts/proxychains.conf yarn dev",
-    "test": "node --no-warnings --experimental-vm-modules $(yarn bin jest) --watch",
-    "test:ci": "node --no-warnings --experimental-vm-modules $(yarn bin jest) --ci"
+    "test": "npx jest --watch",
+    "test:ci": "npx jest --ci"
   },
   "dependencies": {
     "@fortaine/fetch-event-source": "^3.0.6",
@@ -27,6 +27,7 @@
     "@lancedb/lancedb": "^0.22.3",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@next/third-parties": "^14.1.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@svgr/webpack": "^6.5.1",
     "@tanstack/react-virtual": "^3.13.12",
     "@vercel/analytics": "^0.1.11",
@@ -72,6 +73,7 @@
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/hjson": "^2.4.6",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "4.0.9",

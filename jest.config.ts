@@ -14,6 +14,8 @@ const config: Config = {
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",
+    "^lodash-es$": "<rootDir>/test/__mocks__/lodash-es.js",
+    "^lodash-es/(.*)$": "<rootDir>/test/__mocks__/lodash-es.js",
   },
   extensionsToTreatAsEsm: [".ts", ".tsx"],
   injectGlobals: true,

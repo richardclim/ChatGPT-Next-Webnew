@@ -602,6 +602,12 @@ const cn: PartialLocaleType = {
       InstructionsSubTitle: "提示词优化器的系统指令",
       Edit: "编辑指令",
     },
+    Workspace: {
+      Title: "工作区合成器",
+      Model: "合成模型",
+      ModelSubTitle: "用于在后台自动提取/重写研究文档的模型",
+      SelectModel: "选择模型...",
+    },
     Temperature: {
       Title: "随机性 (temperature)",
       SubTitle: "值越大，回复越随机",

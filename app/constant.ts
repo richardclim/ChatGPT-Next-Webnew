@@ -111,7 +111,7 @@ export const ACCESS_CODE_PREFIX = "nk-";
 
 export const STORAGE_KEY = "chatgpt-next-web";
 
-export const REQUEST_TIMEOUT_MS = 300000;
+export const REQUEST_TIMEOUT_MS = 600000;
 export const REQUEST_TIMEOUT_MS_FOR_THINKING = REQUEST_TIMEOUT_MS * 5;
 
 export const EXPORT_MESSAGE_CLASS_NAME = "export-markdown";
@@ -504,6 +504,7 @@ export const KnowledgeCutOffDate: Record<string, string> = {
   "gpt-4.1-mini-2025-04-14": "2024-06",
   "gpt-4.1-nano": "2024-06",
   "gpt-4.1-nano-2025-04-14": "2024-06",
+  "gpt-5.5": "2025-12",
   "gpt-4.5-preview": "2023-10",
   "gpt-4.5-preview-2025-02-27": "2023-10",
   "gpt-4o": "2023-10",
@@ -560,6 +561,7 @@ export const MODEL_MAX_OUTPUT_TOKENS: [RegExp, number][] = [
   [/^gpt-4\.1-mini/, 32768],
   [/^gpt-4\.1/, 32768],
   [/^gpt-4\.5/, 16384],
+  [/^gpt-5\.5/, 128000],
   [/^gpt-5-nano/, 16384],
   [/^gpt-5-mini/, 16384],
   [/^gpt-5\.2/, 33000],
@@ -606,6 +608,7 @@ export const MODEL_EFFORT_LEVELS: [RegExp, string[]][] = [
   // Google — other thinking models use budget, not level (no UI selector)
   [/^gemini-.*-thinking/, []],
   // OpenAI — GPT-5 family
+  [/^gpt-5\.5/, ["none", "low", "medium", "high", "xhigh"]],
   [/^gpt-5\.2/, ["low", "medium", "high", "xhigh"]],
   [/^gpt-5-mini/, ["low", "medium", "high"]],
   [/^gpt-5/, ["low", "medium", "high", "xhigh"]],
@@ -638,6 +641,7 @@ export const VISION_MODEL_REGEXES = [
 export const EXCLUDE_VISION_MODEL_REGEXES = [/claude-3-5-haiku-20241022/];
 
 const openaiModels = [
+  "gpt-5.5",
   "gpt-5.1",
   "gpt-5.2-chat-latest",
   "gpt-5.2",

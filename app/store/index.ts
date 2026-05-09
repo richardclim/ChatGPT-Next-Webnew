@@ -4,3 +4,4 @@ export * from "./access";
 export * from "./config";
 export * from "./plugin";
 export * from "./memory";
+export * from "./workspace";

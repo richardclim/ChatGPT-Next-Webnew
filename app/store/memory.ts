@@ -15,21 +15,21 @@ import { nanoid } from "nanoid";
 
 const profileUpdatesSchema = z
   .object({
+    topic: z
+      .string()
+      .describe("The high-level topic (e.g., 'coding', 'personal')"),
     category: z
       .string()
-      .describe("The high-level category (e.g., 'coding', 'personal')"),
-    attribute: z
-      .string()
-      .describe("The specific attribute name (e.g., 'language', 'hobby')"),
+      .describe("The specific category name (e.g., 'language', 'hobby')"),
     value: z
       .array(z.string())
       .describe(
-        "The value(s) of the attribute. Always return an array of strings. If the output is only one value, wrap it in an array.",
+        "The value(s) of the category. Always return an array of strings. If the output is only one value, wrap it in an array.",
       ),
     action: z
       .enum(["add", "replace", "delete"])
       .describe(
-        "The type of update to perform. 'add' to append new values to a list, 'replace' to overwrite existing values entirely, 'delete' to remove the attribute.",
+        "The type of update to perform. 'add' to append new values to a list, 'replace' to overwrite existing values entirely, 'delete' to remove the category.",
       ),
   })
   .strict();
@@ -56,7 +56,12 @@ export const memorySchema = z
       .describe(
         "Set to true if the new messages continue the same topic as the PREVIOUS SUMMARY " +
           "and the episodic_summary is an updated/extended version. " +
-          "Set to false if this is a new or distinct topic.",
+      "Set to false if this is a new or distinct topic.",
+      ),
+    replace_memory_ids: z
+      .array(z.string())
+      .describe(
+        "If you are consolidating or updating existing memory chunks (from RETRIEVED EXISTING EPISODIC MEMORY), specify their IDs here so they can be securely replaced by this new combined narrative. This acts as a deletion for old records. Return an empty array if not applicable.",
       ),
   })
   .strict();
@@ -127,15 +132,15 @@ export function buildExtractionPrompt(
   today: string,
   profileJson: string,
   chatTranscript: string,
-  previousSummary?: string,
+  retrievedEpisodicContext?: string,
 ): string {
   let prompt = `
-      You are a Archivist, responsible for organizing user memory from the chat session.
+      You are an Archivist and a Technical Scribe, responsible for organizing user memory from the chat session.
       Current Date: ${today}
 
       --- INPUT DATA ---
-      EXISTING PROFILE (JSON):
-      ${profileJson}
+      EXISTING PROFILE (JSON - Partial Matching Topics):
+      ${profileJson || "{}"}
 
       NEW CHAT SESSION:
       ${chatTranscript}
@@ -147,18 +152,19 @@ export function buildExtractionPrompt(
       2. **IGNORE:** Temporary states (hunger, mood, etc.), immediate needs, or generic greetings.
       3. **Conflict Resolution:** If new info contradicts the Existing Profile, trust the NEW information.
       4. **New Information:** If a fact is entirely new, add it to the profile.
-      5. **"category":** The broad domain (e.g., "coding", "personal", "health").
-      6. **"attribute":** The specific variable name (e.g., "language", "city", "allergies").
+      5. **"topic":** The broad domain (e.g., "coding", "personal", "health").
+      6. **"category":** The specific variable name (e.g., "language", "city", "allergies").
       7. **"value":** The factual value(s) as an array of strings.
       8. **"action":** Specify the operation:
          - "add": to append new elements to an ongoing list (e.g., learned a new programming language).
          - "replace": to completely overwrite a singular fact (e.g., changed address, updated age).
-         - "delete": to remove specific elements from a list (provide the elements in "value"). NEVER delete an entire Top-Level category. Only delete specific elements from the value array. Or delete the attribute completely by providing an empty array [].
+         - "delete": to remove specific elements from a list (provide the elements in "value") OR to delete a category completely by providing an empty array [].
+      9. **Consolidation:** If you notice fragmented or redundant facts across different topics/categories in the EXISTING PROFILE, you MUST consolidate them into the single best unified topic and category. Use the "delete" action with an empty array [] to remove the fragmented categories from the old topics, and "add" to port the consolidated data to the better target location.
 
       PART 2: "episodic_summary" (STRING)
-      1. **Goal:** Create a descriptive, narrative summary of the conversation for episodic memory. This summary should capture the essence and key takeaways for future LLM context retrieval.
-      2. **Content:** Focus on the USER's goals, the problem discussed, the solutions proposed, and any specific entities or topics of interest.
-      3. **Contextualization:** If the conversation references past topics or user history, explicitly mention that connection (e.g., "User referenced their previous project on X").
+      1. **Goal:** Create a descriptive, factual, and in-depth narrative summary of the conversation.
+      2. **Content:** You MUST include specific technical details, configurations, code logic, decisions, and outcomes discussed. Do NOT just provide a high-level overview. Capture the actual knowledge produced.
+      3. **Contextualization:** If the conversation builds on past topics, make the connections explicit.
       4. **Temporal Grounding:** Use the current data to make relative dates absolute. (e.g., "tomorrow" will be converted to the absolute date based on the current date provided)
       5. **DO NOT** include keywords, tags, or keyword lists inside the episodic_summary. The summary must be pure narrative only.
 
@@ -168,22 +174,24 @@ export function buildExtractionPrompt(
       3. Always return at least a few keywords. Never return an empty array if the conversation has any substance.
       `;
 
-  if (previousSummary) {
+  if (retrievedEpisodicContext) {
     prompt += `
---- PREVIOUS SUMMARY ---
-${previousSummary}
+--- RETRIEVED EXISTING EPISODIC MEMORY ---
+These are related past memories.
+${retrievedEpisodicContext}
 
---- CONTINUATION INSTRUCTIONS ---
-If the NEW CHAT SESSION continues the same topic as the PREVIOUS SUMMARY:
-  - Set is_continuation to true
-  - Produce an updated/extended episodic_summary that incorporates both the previous and new information
+--- CONTINUATION & CONSOLIDATION INSTRUCTIONS ---
+If the NEW CHAT SESSION relates strictly to one or more of the retrieved memories above:
+  - Set is_continuation to true.
+  - Produce an updated/extended episodic_summary that flawlessly incorporates BOTH the retrieved details and the new information into one cohesive master narrative.
+  - List the specific IDs of the retrieved memories you synthesized into the "replace_memory_ids" list so they can be pruned and deduplicated.
 If the NEW CHAT SESSION introduces a genuinely new or distinct topic:
-  - Set is_continuation to false
-  - Produce a standalone episodic_summary for the new topic only
+  - Set is_continuation to false.
+  - Produce a standalone episodic_summary for the new topic only.
 `;
   } else {
     prompt += `
-There is no previous summary. Always set is_continuation to false.
+There is no previous episodic memory found for this topic. Always set is_continuation to false.
 `;
   }
 
@@ -196,7 +204,7 @@ export function buildUpsertChunk(
   keywords: string[],
   createdAt: number,
   isContinuation: boolean,
-  lastEpisodicEntryId?: string,
+  replaceEntryIds?: string[],
 ): Record<string, unknown> {
   return {
     id: nanoid(),
@@ -205,8 +213,8 @@ export function buildUpsertChunk(
     keywords,
     createdAt,
     originalCreatedAt: createdAt,
-    ...(isContinuation && lastEpisodicEntryId
-      ? { replaceEntryId: lastEpisodicEntryId }
+    ...(isContinuation && replaceEntryIds && replaceEntryIds.length > 0
+      ? { replaceEntryIds }
       : {}),
   };
 }
@@ -408,11 +416,108 @@ export const useMemoryStore = createPersistStore(
           })
           .join("\n");
 
+        // Unify Search (The Scout)
+        const recentUserMsgs = newMessages
+          .filter((m) => m.role === "user")
+          .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)));
+        const lastUserQuery =
+          recentUserMsgs.length > 0
+            ? recentUserMsgs[recentUserMsgs.length - 1]
+            : "chat context";
+
+        const searchQueries = await get().decomposeUserQuery(
+          lastUserQuery,
+          newMessages.slice(-12),
+        );
+
+        // Fetch Partial Profile Context
+        let partialProfileContext = "";
+        try {
+          const matchedProfileChunks = await fetch("/api/vector/profile/search", {
+            method: "POST",
+            body: JSON.stringify({
+              queries: searchQueries,
+              query: searchQueries.semantic[0] || lastUserQuery,
+            }),
+            headers: { "Content-Type": "application/json" },
+          })
+            .then((res) => res.json())
+            .then((data) => data.results || []);
+
+          const fullProfile = get().content;
+          const fetchedArrays: string[] = [];
+          const seenCategories = new Set<string>();
+
+          for (const chunk of matchedProfileChunks) {
+            const id = String(chunk.id || "");
+            if (id.startsWith("profile_")) {
+              const parts = id.replace("profile_", "").split("_");
+              if (parts.length >= 2) {
+                const topic = parts[0];
+                const category = parts.slice(1).join("_");
+                if (!seenCategories.has(`${topic}_${category}`)) {
+                  seenCategories.add(`${topic}_${category}`);
+                  if (fullProfile[topic] && fullProfile[topic][category]) {
+                    fetchedArrays.push(
+                      `Topic: ${topic}, Category: ${category}. Items: ${JSON.stringify(
+                        fullProfile[topic][category],
+                      )}`,
+                    );
+                  }
+                }
+              }
+            }
+          }
+          if (fetchedArrays.length > 0) {
+            partialProfileContext = fetchedArrays.join("\n\n");
+          }
+        } catch (e) {
+          console.error("[Memory] Error fetching partial profile context", e);
+        }
+
+        // Fetch Episodic Context
+        let episodicContext = "";
+        const episodicChunks: string[] = [];
+        const seenEpisodicIds = new Set<string>();
+
+        if (previousSummary && lastEpisodicEntryId) {
+          episodicChunks.push(
+            `[ID: ${lastEpisodicEntryId}]\nSummary: ${previousSummary}\n`,
+          );
+          seenEpisodicIds.add(lastEpisodicEntryId);
+        }
+
+        try {
+          const matchedEpisodicChunks = await fetch("/api/vector/search", {
+            method: "POST",
+            body: JSON.stringify({
+              queries: searchQueries,
+              query: searchQueries.semantic[0] || lastUserQuery,
+            }),
+            headers: { "Content-Type": "application/json" },
+          })
+            .then((res) => res.json())
+            .then((data) => data.results || []);
+
+          for (const c of matchedEpisodicChunks) {
+            if (!seenEpisodicIds.has(c.id)) {
+              seenEpisodicIds.add(c.id);
+              episodicChunks.push(`[ID: ${c.id}]\n${c.content}\n`);
+            }
+          }
+        } catch (e) {
+          console.error("[Memory] Error fetching episodic context", e);
+        }
+
+        if (episodicChunks.length > 0) {
+          episodicContext = episodicChunks.slice(0, 10).join("\n---\n");
+        }
+
         const prompt = buildExtractionPrompt(
           today,
-          JSON.stringify(get().content, null, 2),
+          partialProfileContext,
           chatTranscript,
-          previousSummary,
+          episodicContext,
         );
         // For future considerations **Preservation:** If the user provided specific code snippets, configuration data, or step-by-step instructions, preserve them VERBATIM within the summary.
 
@@ -459,6 +564,7 @@ export const useMemoryStore = createPersistStore(
                       episodic_summary: expected_summary = "",
                       keywords: rawKeywords = [],
                       is_continuation = false,
+                      replace_memory_ids = [],
                     } = combinedResult as any;
                     const episodic_summary =
                       expected_summary ||
@@ -478,20 +584,20 @@ export const useMemoryStore = createPersistStore(
                       );
 
                       for (const update of profile_updates) {
+                        const topic = update.topic || update.Topic;
                         const category = update.category || update.Category;
-                        const attribute = update.attribute || update.Attribute;
                         const value = update.value || update.Value;
                         const action = String(
                           update.action || update.Action || "add",
                         ).toLowerCase();
 
-                        if (!category || !attribute) continue;
+                        if (!topic || !category) continue;
 
-                        if (!newProfile[category]) {
-                          newProfile[category] = {};
+                        if (!newProfile[topic]) {
+                          newProfile[topic] = {};
                         }
 
-                        const existingVal = newProfile[category][attribute];
+                        const existingVal = newProfile[topic][category];
 
                         if (action === "delete") {
                           if (
@@ -504,36 +610,36 @@ export const useMemoryStore = createPersistStore(
                               (item) => !value.includes(String(item)),
                             );
                             if (filtered.length === 0) {
-                              delete newProfile[category][attribute];
+                              delete newProfile[topic][category];
                             } else {
-                              newProfile[category][attribute] = filtered;
+                              newProfile[topic][category] = filtered;
                             }
                           } else {
                             // Either 'value' is empty [] or 'existingVal' is a scalar/undefined.
-                            // Delete the entire attribute completely.
-                            delete newProfile[category][attribute];
+                            // Delete the entire category completely.
+                            delete newProfile[topic][category];
                           }
 
-                          // Clean up empty categories directly
+                          // Clean up empty topics directly
                           if (
-                            newProfile[category] &&
-                            Object.keys(newProfile[category]).length === 0
+                            newProfile[topic] &&
+                            Object.keys(newProfile[topic]).length === 0
                           ) {
-                            delete newProfile[category];
+                            delete newProfile[topic];
                           }
                         } else if (action === "replace") {
                           // Completely overwrite the existing value
-                          newProfile[category][attribute] = value;
+                          newProfile[topic][category] = value;
                         } else {
                           // action === "add"
                           if (existingVal === undefined) {
-                            newProfile[category][attribute] = value;
+                            newProfile[topic][category] = value;
                           } else if (
                             Array.isArray(existingVal) &&
                             Array.isArray(value)
                           ) {
                             // Both arrays - merge and deduplicate
-                            newProfile[category][attribute] = [
+                            newProfile[topic][category] = [
                               ...new Set([...existingVal, ...value]),
                             ];
                           } else if (
@@ -543,12 +649,12 @@ export const useMemoryStore = createPersistStore(
                           ) {
                             // Legacy migration: existing is non-array, new is array
                             // Convert existing to array and merge
-                            newProfile[category][attribute] = [
+                            newProfile[topic][category] = [
                               ...new Set([String(existingVal), ...value]),
                             ];
                           } else {
                             // Fallback for non-arrays when adding
-                            newProfile[category][attribute] = value;
+                            newProfile[topic][category] = value;
                           }
                         }
                       }
@@ -569,13 +675,26 @@ export const useMemoryStore = createPersistStore(
                             ${episodic_summary}
                             Keywords: ${keywords.join(", ")}
                             `.trim();
+
+                      let finalReplaceIds = Array.isArray(replace_memory_ids)
+                        ? replace_memory_ids.map(String)
+                        : [];
+
+                      if (
+                        is_continuation &&
+                        lastEpisodicEntryId &&
+                        !finalReplaceIds.includes(lastEpisodicEntryId)
+                      ) {
+                        finalReplaceIds.push(lastEpisodicEntryId);
+                      }
+
                       const chunk = buildUpsertChunk(
                         sessionId,
                         enrichedContent,
                         keywords,
                         Date.now(),
                         Boolean(is_continuation),
-                        lastEpisodicEntryId,
+                        finalReplaceIds,
                       );
 
                       // Make upsert blocking - only mark as archived if successful
@@ -864,34 +983,32 @@ export const useMemoryStore = createPersistStore(
 
           const previousContextSection =
             previousMemoryContexts.length > 0
-              ? `\n             ALREADY ATTACHED CONTEXT (from previous messages in this session):\n             ${previousMemoryContexts.join(
+              ? `ALREADY ATTACHED CONTEXT (from previous messages in this session):\n${previousMemoryContexts.join(
                   "\n---\n",
                 )}\n`
               : "";
 
           const rerankPrompt = `
-             Current Date: ${today}
-             ${previousContextSection}
-             Here are ${filteredCandidates.length} retrieval candidates from the database.
+Current Date: ${today}
+${previousContextSection}
+Here are ${filteredCandidates.length} retrieval candidates from the database.
 
-             Snippets:
-             ${candidatesList}
+Snippets:
+${candidatesList}
 
-             User Query: ${query}
+User Query: ${query}
 
-             Task: Select snippets that contain specific facts that can help answer the User Query in the current context.
+Task: Select snippets that contain specific facts that can help answer the User Query in the current context.
 
-             CRITICAL RULES:
-             1. RELEVANCE IS KEY: Only select snippets that are strictly relevant and helps answer the query.
-             2. IGNORE NOISE: If a snippet talks about a different topic, ignore it.
-             3. CONTEXT AWARENESS: Use the Recent Context to disambiguate. (e.g. if Context is about "Production DB", ignore snippets about "Test DB").
-             4. VALUE ADD: Prioritize snippets that add *new* details or specific facts not fully explained in the immediate history.
-             5. DEDUPLICATION: If a snippet's content is already present in the ALREADY ATTACHED CONTEXT above, do NOT select it again.
-             6. If the information from the snippets already exist in the recent history, ignore it.
-             7. QUANTITY: You may select 0 to ${limit} snippets. Do NOT force yourself to pick ${limit} if they are not good.
-             8. If NO snippets are relevant, return an empty array [].
-             9. Return ONLY a JSON object with an "indices" key containing the matching IDs. Example: {"indices": [0, 5]}
-             `;
+CRITICAL RULES:
+1. RELEVANCE IS KEY: Only select snippets that are strictly relevant and helps answer the query.
+2. IGNORE NOISE: If a snippet talks about a different topic, ignore it.
+3. VALUE ADD: Prioritize snippets that add *new* details or specific facts not fully explained in the ALREADY ATTACHED CONTEXT.
+4. DEDUPLICATION: If a snippet's content is already present in the ALREADY ATTACHED CONTEXT above, do NOT select it again.
+5. QUANTITY: You may select 0 to ${limit} snippets. Do NOT force yourself to pick ${limit} if they are not good.
+6. If NO snippets are relevant, return an empty array [].
+7. Return ONLY a JSON object with an "indices" key containing the matching IDs. Example: {"indices": [0, 5]}
+`.trim();
 
           return new Promise((resolve) => {
             let finalChunks: string[] = [];
@@ -1046,27 +1163,30 @@ export const useMemoryStore = createPersistStore(
 
         const candidateJsonStr = fetchedArrays.join("\n\n");
 
+        const today = new Date().toLocaleString();
         const previousContextSection =
           previousMemoryContexts.length > 0
-            ? `\n      ALREADY ATTACHED CONTEXT (from previous messages in this session):\n      ${previousMemoryContexts.join(
+            ? `ALREADY ATTACHED CONTEXT (from previous messages in this session):\n${previousMemoryContexts.join(
                 "\n---\n",
               )}\n`
             : "";
 
         const prompt = `
-      User Profile Matching Records (Partial Data):
-      ${candidateJsonStr}
+Current Date: ${today}
+${previousContextSection}
+User Profile Matching Records (Partial Data):
+${candidateJsonStr}
 
-      User Query:
-      ${query}
-      ${previousContextSection}
-      Instruction:
-      You are provided with specific User Profile categories fetched from a database based on the query.
-      Select ONLY the facts from these records that are DIRECTLY relevant to answering the User Query.
-      DEDUPLICATION: If the facts are already present in the ALREADY ATTACHED CONTEXT above, do NOT include them again.
-      Return the relevant facts as a concise list.
-      If nothing is relevant, or if all relevant facts are already in the attached context, return "NO_CONTEXT".
-      `;
+User Query:
+${query}
+
+Instruction:
+You are provided with specific User Profile categories fetched from a database based on the query.
+Select ONLY the facts from these records that are DIRECTLY relevant to answering the User Query.
+DEDUPLICATION: If the facts are already present in the ALREADY ATTACHED CONTEXT above, do NOT include them again.
+Return the relevant facts as a concise list.
+If nothing is relevant, or if all relevant facts are already in the attached context, return "NO_CONTEXT".
+`.trim();
 
         return new Promise((resolve) => {
           let result = "";

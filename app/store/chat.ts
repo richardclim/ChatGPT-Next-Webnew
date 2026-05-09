@@ -7,6 +7,7 @@ import {
 } from "../utils";
 import { useMemoryStore } from "./memory";
 import type { ExtractionResult } from "./memory";
+import { useWorkspaceStore } from "./workspace";
 
 import { shallow } from "zustand/shallow";
 import {
@@ -124,6 +125,9 @@ export interface ChatSession {
   lastEpisodicSummary?: string;
   lastEpisodicEntryId?: string;
 
+  attachedWorkspaceId?: string;
+  lastWorkspaceSyncMessageId?: string;
+
   // Soft-delete tombstone: timestamp when session was deleted.
   // Undefined/absent means the session is alive.
   deletedAt?: number;
@@ -160,6 +164,7 @@ function createEmptySession(): ChatSession {
     lastExtractionTime: undefined,
     lastEpisodicSummary: undefined,
     lastEpisodicEntryId: undefined,
+    attachedWorkspaceId: undefined,
     draftInput: "",
   };
 }
@@ -860,6 +865,14 @@ export const useChatStore = createPersistStore(
         if (previousSession && previousSession.mask.modelConfig.enableMemory && previousSession.messages.length > 0) {
           get().triggerExtractionForSession(previousSession);
         }
+        
+        if (previousSession && previousSession.attachedWorkspaceId && previousSession.messages.length > 0) {
+           const lastMessage = previousSession.messages[previousSession.messages.length - 1];
+           if (previousSession.lastWorkspaceSyncMessageId !== lastMessage.id) {
+               console.log("[Workspace] Auto syncing workspace context on session switch");
+               useWorkspaceStore.getState().syncWorkspaceContext(previousSession.attachedWorkspaceId, previousSession.id);
+           }
+        }
 
         set({
           currentSessionIndex: index,
@@ -1048,10 +1061,10 @@ export const useChatStore = createPersistStore(
               ? session.messages.length - archiveIndex - 1
               : session.messages.length;
 
-          // 4 user + 4 assistant = 8 messages
-          if (newMessageCount >= 8) {
+          // 6 user + 6 assistant = 12 messages
+          if (newMessageCount >= 12) {
             console.log(
-              "[Chat] Triggering extraction - 8+ new messages detected",
+              "[Chat] Triggering extraction - 12+ new messages detected",
             );
             get().triggerExtractionForSession(session);
           }
@@ -1501,6 +1514,14 @@ export const useChatStore = createPersistStore(
 
         if (mcpSystemPrompt) {
           systemParts.push(mcpSystemPrompt);
+        }
+
+        if (session.attachedWorkspaceId) {
+          const workspaceStore = useWorkspaceStore.getState();
+          const workspace = workspaceStore.workspaces[session.attachedWorkspaceId];
+          if (workspace && workspace.content) {
+            systemParts.push(`Attached Research Document/Workspace (Reference this to answer questions optimally):\n\n${workspace.content}`);
+          }
         }
 
         if (modelConfig.enableTavily) {

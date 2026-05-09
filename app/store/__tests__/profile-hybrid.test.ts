@@ -1,4 +1,6 @@
 import { jest } from "@jest/globals";
+jest.mock("nanoid", () => ({ nanoid: () => "mock-id" }));
+jest.mock("lodash-es", () => ({}));
 
 // Mock store utility early to bypass persistence logic entirely
 jest.mock("@/app/utils/store", () => ({
@@ -18,7 +20,7 @@ jest.mock("@/app/utils/store", () => ({
   })
 }));
 
-import * as apiModule from "@/app/client/api";
+import { getClientApi } from "@/app/client/api";
 import { useMemoryStore } from "../memory";
 
 // Mock other stores using absolute paths
@@ -55,22 +57,22 @@ global.fetch = jest.fn() as any;
 describe("Profile Hybrid Vector Architecture", () => {
   let store: any;
   let mockChat: any;
-  let getClientApiSpy: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
     
     mockChat = jest.fn();
-    getClientApiSpy = jest.spyOn(apiModule, "getClientApi").mockReturnValue({
+    (getClientApi as jest.Mock).mockReturnValue({
       llm: { chat: mockChat }
     } as any);
+
 
     store = useMemoryStore.getState();
     store.content = {};
   });
 
   afterEach(() => {
-    getClientApiSpy.mockRestore();
+    // No mockRestore needed for jest.mock
   });
 
   describe("triggerProfileMigration", () => {
@@ -102,7 +104,7 @@ describe("Profile Hybrid Vector Architecture", () => {
       mockChat.mockImplementation(({ onFinish }: any) => {
         onFinish(JSON.stringify({
           profile_updates: [
-            { category: "coding", attribute: "languages", value: ["Go"], action: "add" }
+            { topic: "coding", category: "languages", value: ["Go"], action: "add" }
           ],
           episodic_summary: "summary",
           keywords: ["Go"]
@@ -116,7 +118,7 @@ describe("Profile Hybrid Vector Architecture", () => {
 
       await store.processExtraction(messages as any, "session-1");
 
-      expect(store.content.coding.languages).toContain("Go");
+      expect(useMemoryStore.getState().content.coding.languages).toContain("Go");
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/vector/profile/upsert",
         expect.objectContaining({ method: "POST" })
@@ -178,7 +180,7 @@ describe("Profile Hybrid Vector Architecture", () => {
       mockChat.mockImplementation(({ onFinish }: any) => {
         onFinish(JSON.stringify({
           profile_updates: [
-            { category: "personal", attribute: "location", value: [], action: "delete" }
+            { topic: "personal", category: "location", value: [], action: "delete" }
           ],
           episodic_summary: "Deleted location",
           keywords: []

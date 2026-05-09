@@ -20,7 +20,7 @@ export interface MemoryChunk {
   keywords?: string[]; // Optional, as it's now embedded in content
   // vector is generated server-side if not provided
   vector?: number[];
-  replaceEntryId?: string; // If set, directly replace this entry (skip similarity routing)
+  replaceEntryIds?: string[]; // If set, directly replace these entries (skip similarity routing). This consolidates multiple chunks.
 }
 
 
@@ -81,7 +81,7 @@ export async function upsertMemory(
     // Initial creation - just insert all without checks (nothing to compare against)
     const data = [];
     for (const chunk of chunks) {
-      const { replaceEntryId: _, ...chunkData } = chunk;
+      const { replaceEntryIds: _, ...chunkData } = chunk;
       const vector = await embedText(chunk.content);
       const newId = chunk.id || nanoid();
       data.push({
@@ -128,35 +128,35 @@ export async function upsertMemory(
 
   // Process chunks individually for smart upsert
   for (const chunk of chunks) {
-    const { replaceEntryId, ...chunkData } = chunk;
+    const { replaceEntryIds, ...chunkData } = chunk;
 
     // Direct replace path: skip similarity routing entirely
-    if (replaceEntryId) {
-      // Fetch existing record to carry forward its sessionIds and originalCreatedAt
+    if (replaceEntryIds && replaceEntryIds.length > 0) {
+      // Fetch existing records to carry forward their sessionIds and oldest originalCreatedAt
       let priorSessionIds: string[] = [];
       let priorOriginalCreatedAt: number | undefined;
-      try {
-        const prior = await table
-          .query()
-          .where(`id = '${replaceEntryId.replace(/'/g, "''")}'`)
-          .limit(1)
-          .toArray();
-        if (prior.length > 0) {
-          priorSessionIds = (prior[0].sessionIds as string[]) || [];
-          priorOriginalCreatedAt =
-            (prior[0].originalCreatedAt as number) ||
-            (prior[0].createdAt as number);
+
+      for (const repId of replaceEntryIds) {
+        try {
+          const prior = await table
+            .query()
+            .where(`id = '${repId.replace(/'/g, "''")}'`)
+            .limit(1)
+            .toArray();
+          if (prior.length > 0) {
+            priorSessionIds.push(...((prior[0].sessionIds as string[]) || []));
+            const pCreatedAt = (prior[0].originalCreatedAt as number) || (prior[0].createdAt as number);
+            if (!priorOriginalCreatedAt || pCreatedAt < priorOriginalCreatedAt) {
+              priorOriginalCreatedAt = pCreatedAt;
+            }
+          }
+          await table.delete(`id = '${repId.replace(/'/g, "''")}'`);
+          console.log(`[Memory Router] Deleted existing entry during consolidation: ${repId}`);
+        } catch (e) {
+          console.warn(`[Memory Router] Could not delete entry ${repId} (may not exist)`, e);
         }
-        await table.delete(`id = '${replaceEntryId}'`);
-        console.log(
-          `[Memory Router] Deleted existing entry: ${replaceEntryId}`,
-        );
-      } catch (e) {
-        console.warn(
-          `[Memory Router] Could not delete entry ${replaceEntryId} (may not exist)`,
-          e,
-        );
       }
+
       const mergedSessionIds = [
         ...new Set([...priorSessionIds, ...chunk.sessionIds]),
       ];
@@ -346,6 +346,8 @@ const VECTOR_LIMIT = 10;
 const PROFILE_VECTOR_LIMIT = 30;
 /** Maximum FTS candidates before filtering. */
 const FTS_LIMIT = 10;
+/** Relative threshold for FTS: keep results that score at least 75% of the top match. */
+const FTS_RELATIVE_THRESHOLD = 0.75;
 
 export async function searchMemory(args: { semanticQuery: string, keywordQuery: string }) {
   const { semanticQuery, keywordQuery } = args;
@@ -390,10 +392,9 @@ export async function searchMemory(args: { semanticQuery: string, keywordQuery: 
     try {
       const raw = await table.search(keywordQuery, "fts").limit(FTS_LIMIT).toArray();
 
-      // Relative filtering: Keep results that score at least 60% of the top match
       if (raw.length > 0) {
         const topScore = (raw[0]._score as number) || 0;
-        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * 0.6);
+        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * FTS_RELATIVE_THRESHOLD);
       }
       console.log(
         `[Vector Store] FTS: ${raw.length} raw → ${ftsResults.length} after relative threshold (top = ${raw.length ? raw[0]._score : 0})`,
@@ -525,7 +526,7 @@ export async function searchProfileTable(args: { semanticQuery: string, keywordQ
       const raw = await table.search(keywordQuery, "fts").limit(FTS_LIMIT).toArray();
       if (raw.length > 0) {
         const topScore = (raw[0]._score as number) || 0;
-        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * 0.6);
+        ftsResults = raw.filter((r) => ((r._score as number) ?? 0) >= topScore * FTS_RELATIVE_THRESHOLD);
       }
     } catch (ftsError) {
       console.warn("[Profile Store] FTS unavailable, skipping.", ftsError);

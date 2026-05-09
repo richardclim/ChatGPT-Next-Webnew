@@ -52,7 +52,6 @@ export async function handle(
 export const GET = handle;
 export const POST = handle;
 
-export const runtime = "edge";
 export const preferredRegion = [
   "bom1",
   "cle1",
@@ -114,20 +113,50 @@ async function request(req: NextRequest, apiKey: string) {
     signal: controller.signal,
   };
 
-  try {
-    const res = await fetch(fetchUrl, fetchOptions);
-    // to prevent browser prompt for credentials
-    const newHeaders = new Headers(res.headers);
-    newHeaders.delete("www-authenticate");
-    // to disable nginx buffering
-    newHeaders.set("X-Accel-Buffering", "no");
+  const isStream = req.headers.get("accept") === "text/event-stream";
+  const heartbeatChar = isStream ? ": heartbeat\n\n" : " ";
+  const encoder = new TextEncoder();
 
-    return new Response(res.body, {
-      status: res.status,
-      statusText: res.statusText,
-      headers: newHeaders,
-    });
-  } finally {
-    clearTimeout(timeoutId);
+  const stream = new ReadableStream({
+    async start(streamController) {
+      const interval = setInterval(() => {
+        try {
+          streamController.enqueue(encoder.encode(heartbeatChar));
+        } catch (e) {
+          clearInterval(interval);
+        }
+      }, 15000);
+
+      try {
+        const res = await fetch(fetchUrl, fetchOptions);
+        clearInterval(interval);
+
+        if (res.body) {
+          const reader = res.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            streamController.enqueue(value);
+          }
+        }
+        streamController.close();
+      } catch (e) {
+        clearInterval(interval);
+        streamController.error(e);
+      }
+    },
+  });
+
+  const newHeaders = new Headers();
+  newHeaders.set("X-Accel-Buffering", "no");
+  if (isStream) {
+    newHeaders.set("Content-Type", "text/event-stream");
+  } else {
+    newHeaders.set("Content-Type", "application/json");
   }
+
+  return new Response(stream, {
+    status: 200,
+    headers: newHeaders,
+  });
 }

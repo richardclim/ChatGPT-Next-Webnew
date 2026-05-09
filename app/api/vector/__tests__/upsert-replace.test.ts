@@ -100,7 +100,7 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
     .record({
       sessionId: arbSessionId,
       content: arbContent,
-      replaceEntryId: arbReplaceEntryId,
+      replaceEntryIds: fc.array(arbReplaceEntryId, { minLength: 1, maxLength: 3 }),
       keywords: arbKeywords,
       createdAt: arbCreatedAt,
     })
@@ -109,13 +109,13 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
         id: r.sessionId,
         content: r.content,
         sessionIds: [r.sessionId],
-        replaceEntryId: r.replaceEntryId,
+        replaceEntryIds: r.replaceEntryIds,
         keywords: r.keywords,
         createdAt: r.createdAt,
       }),
     );
 
-  it("should call table.delete with the replaceEntryId", async () => {
+  it("should call table.delete for each ID in replaceEntryIds", async () => {
     await fc.assert(
       fc.asyncProperty(arbChunkWithReplace, async (chunk) => {
         mockDelete.mockClear();
@@ -125,10 +125,10 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
 
         await upsertMemory([chunk]);
 
-        expect(mockDelete).toHaveBeenCalledTimes(1);
-        expect(mockDelete).toHaveBeenCalledWith(
-          `id = '${chunk.replaceEntryId}'`,
-        );
+        expect(mockDelete).toHaveBeenCalledTimes(chunk.replaceEntryIds!.length);
+        chunk.replaceEntryIds!.forEach((id) => {
+          expect(mockDelete).toHaveBeenCalledWith(`id = '${id.replace(/'/g, "''")}'`);
+        });
       }),
       { numRuns: 50 },
     );
@@ -149,7 +149,7 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
         expect(addedData).toHaveLength(1);
         const insertedEntry = addedData[0];
 
-        expect(insertedEntry.id).not.toBe(chunk.replaceEntryId);
+        expect(chunk.replaceEntryIds).not.toContain(insertedEntry.id);
         expect(insertedEntry.id).toBe("mock-id-1");
         expect(insertedEntry.vector).toEqual([0.1, 0.2, 0.3]);
         expect(insertedEntry.content).toBe(chunk.content);
@@ -216,7 +216,7 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
         mockVectorSearch.mockClear();
         nanoidCounter = 0;
 
-        mockDelete.mockRejectedValueOnce(new Error("Entry not found"));
+        mockDelete.mockRejectedValue(new Error("Entry not found"));
 
         const result = await upsertMemory([chunk]);
 
@@ -228,6 +228,35 @@ describe("Property 4: Direct replace skips similarity routing and performs atomi
       }),
       { numRuns: 50 },
     );
+  });
+
+  it("should merge sessionIds and preserve oldest originalCreatedAt from multiple parents", async () => {
+    const chunk: MemoryChunk = {
+      id: "new-chunk",
+      content: "merged content",
+      sessionIds: ["session-3"],
+      replaceEntryIds: ["id-1", "id-2"],
+      createdAt: 3000,
+    };
+
+    // Mock finding two existing entries
+    mockTable.toArray
+      .mockResolvedValueOnce([
+        { id: "id-1", sessionIds: ["session-1"], originalCreatedAt: 1000 },
+      ])
+      .mockResolvedValueOnce([
+        { id: "id-2", sessionIds: ["session-2"], originalCreatedAt: 500 },
+      ]);
+
+    await upsertMemory([chunk]);
+
+    expect(mockAdd).toHaveBeenCalledTimes(1);
+    const inserted = mockAdd.mock.calls[0][0][0];
+    
+    // session-1 + session-2 + session-3
+    expect(inserted.sessionIds.sort()).toEqual(["session-1", "session-2", "session-3"]);
+    // min(1000, 500) = 500
+    expect(inserted.originalCreatedAt).toBe(500);
   });
 });
 
@@ -245,7 +274,7 @@ describe("Property 5: Upsert response contains the new entry ID", () => {
     .record({
       sessionId: arbSessionId,
       content: arbContent,
-      replaceEntryId: arbReplaceEntryId,
+      replaceEntryIds: fc.array(arbReplaceEntryId, { minLength: 1, maxLength: 3 }),
       keywords: arbKeywords,
       createdAt: arbCreatedAt,
     })
@@ -254,7 +283,7 @@ describe("Property 5: Upsert response contains the new entry ID", () => {
         id: r.sessionId,
         content: r.content,
         sessionIds: [r.sessionId],
-        replaceEntryId: r.replaceEntryId,
+        replaceEntryIds: r.replaceEntryIds,
         keywords: r.keywords,
         createdAt: r.createdAt,
       }),
@@ -277,7 +306,7 @@ describe("Property 5: Upsert response contains the new entry ID", () => {
       }),
     );
 
-  it("should return the new entry ID for a chunk with replaceEntryId", async () => {
+  it("should return the new entry ID for a chunk with replaceEntryIds", async () => {
     await fc.assert(
       fc.asyncProperty(arbChunkWithReplace, async (chunk) => {
         mockDelete.mockClear();

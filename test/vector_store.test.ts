@@ -152,8 +152,8 @@ describe("Vector Store", () => {
         .mockResolvedValueOnce([{ content: "vector result", _distance: 0.1 }]) // Vector path
         .mockResolvedValueOnce([ // FTS path
           { content: "top match", _score: 10.0, id: "a" },
-          { content: "good match", _score: 7.0, id: "b" }, 
-          { content: "low match", _score: 3.0, id: "c" } // Should be filtered (3.0 < 10.0 * 0.6)
+          { content: "good match", _score: 8.0, id: "b" }, 
+          { content: "low match", _score: 3.0, id: "c" } // Should be filtered (3.0 < 10.0 * 0.75)
         ]);
 
       const results = await searchMemory({ 
