@@ -29,6 +29,7 @@ import Locale from "../locales";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import clsx from "clsx";
+import { escapeHtml } from "../utils/format";
 
 export function PluginPage() {
   const navigate = useNavigate();
@@ -346,7 +347,7 @@ export function PluginPage() {
                       <code
                         contentEditable={true}
                         dangerouslySetInnerHTML={{
-                          __html: editingPlugin.content,
+                          __html: escapeHtml(editingPlugin.content),
                         }}
                         onBlur={onChangePlugin}
                       ></code>
