@@ -1,0 +1,4 @@
+## 2025-02-14 - Fix Cross-Site Scripting (XSS) Vulnerability in Plugin Component
+**Vulnerability:** Cross-Site Scripting (XSS) vulnerability was found in `app/components/plugin.tsx` due to rendering user-controlled content via `dangerouslySetInnerHTML` without proper escaping.
+**Learning:** `dangerouslySetInnerHTML` was used to render `editingPlugin.content` inside `<code>` tags. Since this content is user-controlled (e.g. from fetched URLs or text input), it is vulnerable to XSS if not properly escaped. A previous utility, `DOMPurify`, might have been avoided as it can falsely identify valid code syntax containing `<` and `>` characters as malicious tags and strip them.
+**Prevention:** Always use a utility function like `escapeHtml` to escape special HTML characters (`<`, `>`, `&`, `"`, `'`) before rendering raw code blocks (like YAML/JSON) into DOM elements with `dangerouslySetInnerHTML`.
