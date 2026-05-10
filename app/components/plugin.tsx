@@ -30,6 +30,16 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import clsx from "clsx";
 
+function escapeHtml(unsafe: string | undefined): string {
+  if (!unsafe) return "";
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function PluginPage() {
   const navigate = useNavigate();
   const pluginStore = usePluginStore();
@@ -346,7 +356,7 @@ export function PluginPage() {
                       <code
                         contentEditable={true}
                         dangerouslySetInnerHTML={{
-                          __html: editingPlugin.content,
+                          __html: escapeHtml(editingPlugin.content),
                         }}
                         onBlur={onChangePlugin}
                       ></code>
