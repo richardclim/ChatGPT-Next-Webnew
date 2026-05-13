@@ -326,6 +326,8 @@ export function SideBar(props: { className?: string }) {
           <>
             <div className={clsx(styles["sidebar-action"], styles.mobile)}>
               <IconButton
+                aria={Locale.UI.Delete}
+                title={Locale.UI.Delete}
                 icon={<DeleteIcon />}
                 onClick={async () => {
                   if (await showConfirm(Locale.Home.DeleteChat)) {
@@ -346,7 +348,8 @@ export function SideBar(props: { className?: string }) {
             <div className={styles["sidebar-action"]}>
               <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
                 <IconButton
-                  aria={Locale.Export.MessageFromChatGPT}
+                  aria="GitHub Repository"
+                  title="GitHub Repository"
                   icon={<GithubIcon />}
                   shadow
                 />
