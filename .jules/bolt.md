@@ -1,0 +1,3 @@
+## 2024-05-19 - [Zustand Store Reactivity]
+**Learning:** Using `const store = useStore()` destructing directly in components subscribes the component to *all* state updates in the store. For stores like ChatStore that get updated extremely frequently (e.g., streaming text, typing input), this causes massive unnecessary re-rendering across the entire app.
+**Action:** Use targeted selectors with `shallow` or pass equality functions when reactivity is needed for rendering. For event handlers or callbacks where you just need to dispatch an action or read a value without reacting to it, use `useStore.getState()` instead of subscribing to the hook.
